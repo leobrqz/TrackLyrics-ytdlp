@@ -1,0 +1,15 @@
+.venv
+__pycache__
+
+# Runtime artifacts 
+library.db
+app_settings.db
+browser_data/
+tracks/
+temp/
+logs/
+
+
+
+docs/
+
