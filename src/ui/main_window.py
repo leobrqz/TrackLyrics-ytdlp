@@ -5,7 +5,7 @@ runs startup validation, and coordinates the download worker.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
-    QStatusBar,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -49,10 +48,10 @@ class MainWindow(QMainWindow):
         self._worker = DownloadWorker(self._queue)
         self._playback = PlaybackManager(self)
 
-        # ── Build UI (central before toolbar: Queue action needs progress widget) ─
+        # ── Build UI (central before toolbar: progress widget needed for wiring) ─
         self._build_central()
         self._build_toolbar()
-        self._build_status_bar()
+        self.setStatusBar(None)
 
         # ── Wire signals ─────────────────────────────────────────────────────
         self._wire_worker()
@@ -64,6 +63,9 @@ class MainWindow(QMainWindow):
         # ── Apply theme ──────────────────────────────────────────────────────
         theme = get_setting("theme", "dark")
         self._apply_theme(theme)
+        # Lock minimum heights after QSS/theme application so resizing the
+        # splitter doesn't clip player/progress controls.
+        QTimer.singleShot(0, self._lock_bottom_splitter_limits)
 
         # ── Startup validation ───────────────────────────────────────────────
         self._validate_library()
@@ -77,6 +79,8 @@ class MainWindow(QMainWindow):
         tb = QToolBar("Main Toolbar")
         tb.setObjectName("mainToolbar")
         tb.setMovable(False)
+        tb.setFloatable(False)
+        tb.setMaximumHeight(40)
         self.addToolBar(tb)
 
         self._download_btn = QPushButton("Download")
@@ -91,13 +95,6 @@ class MainWindow(QMainWindow):
         spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         tb.addWidget(spacer)
 
-        self._queue_btn = QPushButton("Queue")
-        self._queue_btn.setObjectName("toolbarTextBtn")
-        self._queue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._queue_btn.setToolTip("Show download queue")
-        self._queue_btn.clicked.connect(self._progress_widget.expand_queue)
-        tb.addWidget(self._queue_btn)
-
         self._theme_btn = QPushButton()
         self._theme_btn.setObjectName("toolbarTextBtn")
         self._theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -110,47 +107,61 @@ class MainWindow(QMainWindow):
         central.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(8, 4, 8, 6)
-        root.setSpacing(6)
+        root.setContentsMargins(8, 2, 8, 0)
+        root.setSpacing(0)
 
-        # ── Top: sidebar | library | lyrics ─────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setObjectName("mainSplitter")
-        splitter.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        splitter.setHandleWidth(1)
-        splitter.setChildrenCollapsible(False)
+        self._h_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._h_splitter.setObjectName("mainSplitter")
+        self._h_splitter.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._h_splitter.setHandleWidth(4)
+        self._h_splitter.setChildrenCollapsible(False)
 
         self._playlist_widget = PlaylistWidget()
         self._library_widget = LibraryWidget()
         self._lyrics_widget = LyricsWidget()
 
-        splitter.addWidget(self._playlist_widget)
-        splitter.addWidget(self._library_widget)
-        splitter.addWidget(self._lyrics_widget)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 3)
-        splitter.setStretchFactor(2, 2)
+        self._h_splitter.addWidget(self._playlist_widget)
+        self._h_splitter.addWidget(self._library_widget)
+        self._h_splitter.addWidget(self._lyrics_widget)
+        self._h_splitter.setStretchFactor(0, 0)
+        self._h_splitter.setStretchFactor(1, 3)
+        self._h_splitter.setStretchFactor(2, 2)
 
-        root.addWidget(splitter, stretch=1)
-
-        # ── Bottom: player controls ──────────────────────────────────────────
         self._player_widget = PlayerWidget(
             video_widget=self._playback.get_video_widget()
         )
-        root.addWidget(self._player_widget)
-
-        # ── Progress bar ─────────────────────────────────────────────────────
         self._progress_widget = ProgressWidget(queue=self._queue)
-        root.addWidget(self._progress_widget)
+
+        bottom_panel = QWidget()
+        self._bottom_panel = bottom_panel
+        bottom_panel.setObjectName("playerBottomPanel")
+        bottom_panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        bottom_layout = QVBoxLayout(bottom_panel)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(0)
+        # Keep the progress/status area stable while letting the player area
+        # absorb vertical resize.
+        bottom_layout.addWidget(self._player_widget, stretch=1)
+        bottom_layout.addWidget(self._progress_widget, stretch=0)
+
+        self._v_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._v_splitter.setObjectName("outerSplitter")
+        self._v_splitter.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._v_splitter.setHandleWidth(4)
+        self._v_splitter.setChildrenCollapsible(False)
+        self._v_splitter.addWidget(self._h_splitter)
+        self._v_splitter.addWidget(bottom_panel)
+        self._v_splitter.setStretchFactor(0, 1)
+        self._v_splitter.setStretchFactor(1, 0)
+        self._v_splitter.setSizes([440, 260])
+
+        root.addWidget(self._v_splitter, stretch=1)
 
         # ── Playlist ↔ library wiring ────────────────────────────────────────
         self._playlist_widget.all_tracks_selected.connect(self._library_widget.refresh)
         self._playlist_widget.playlist_selected.connect(self._on_playlist_selected)
         self._library_widget.track_selected.connect(self._on_track_selected)
         self._library_widget.request_add_to_playlist.connect(self._on_add_to_playlist)
-
-    def _build_status_bar(self) -> None:
-        self.setStatusBar(QStatusBar())
 
     # ── Signal wiring ────────────────────────────────────────────────────────
 
@@ -162,12 +173,14 @@ class MainWindow(QMainWindow):
         w.lyrics_ready.connect(self._lyrics_widget.on_lyrics_ready)
         w.duplicate_detected.connect(self._on_duplicate)
         w.error_occurred.connect(self._on_error)
+        self._progress_widget.layout_changed.connect(self._lock_bottom_splitter_limits)
 
     def _wire_playback(self) -> None:
         pm = self._playback
         pm.position_changed.connect(self._player_widget.set_position)
         pm.duration_changed.connect(self._player_widget.set_duration)
         pm.video_visible.connect(self._player_widget.set_video_visible)
+        pm.video_visible.connect(lambda _v: self._lock_bottom_splitter_limits())
         pm.error_occurred.connect(
             lambda msg: self._on_error("Playback Error", msg, "Try selecting another format.")
         )
@@ -261,12 +274,25 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(get_stylesheet(theme))
+        QTimer.singleShot(0, self._lock_bottom_splitter_limits)
         if theme == "dark":
             self._theme_btn.setText("Light")
             self._theme_btn.setToolTip("Switch to light theme")
         else:
             self._theme_btn.setText("Dark")
             self._theme_btn.setToolTip("Switch to dark theme")
+
+    def _lock_bottom_splitter_limits(self) -> None:
+        self._player_widget.apply_minimum_from_layout()
+        self._progress_widget.apply_minimum_from_layout()
+        lay = self._bottom_panel.layout()
+        if lay is None:
+            return
+        bottom_h = lay.totalMinimumSize().height()
+        self._bottom_panel.setMinimumHeight(bottom_h)
+        # PySide6 does not expose QSplitter::setMinimumSizes (Qt C++ API); enforce
+        # limits via each pane widget’s minimum height so the handle cannot clip UI.
+        self._h_splitter.setMinimumHeight(200)
 
     # ── Startup validation ───────────────────────────────────────────────────
 

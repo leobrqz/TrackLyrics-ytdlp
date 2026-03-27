@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 class DownloadDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("downloadDialog")
         self.setWindowTitle("Add Downloads")
         self.setMinimumWidth(500)
         self.setMinimumHeight(260)

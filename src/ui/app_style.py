@@ -79,15 +79,15 @@ QToolBar#mainToolbar {{
     background-color: {p["bg_elevated"]};
     border: none;
     border-bottom: 1px solid {p["border"]};
-    padding: 6px 12px;
-    spacing: 8px;
+    padding: 2px 10px;
+    spacing: 6px;
 }}
 QToolBar#mainToolbar QPushButton#toolbarPrimaryBtn {{
     background-color: {p["accent"]};
     color: #ffffff;
     border: none;
-    border-radius: 6px;
-    padding: 6px 16px;
+    border-radius: 5px;
+    padding: 4px 14px;
     font-weight: 600;
     min-width: 0;
 }}
@@ -102,7 +102,7 @@ QToolBar#mainToolbar QPushButton#toolbarTextBtn {{
     color: {p["text_secondary"]};
     border: none;
     border-radius: 4px;
-    padding: 4px 10px;
+    padding: 2px 8px;
     font-weight: 500;
     min-width: 0;
 }}
@@ -143,24 +143,37 @@ QLineEdit {{
 QLineEdit:focus {{
     border-color: {p["accent"]};
 }}
-QTabWidget::pane {{
-    border: 1px solid {p["border"]};
-    border-radius: 8px;
-    top: -1px;
-    background-color: {p["bg_card"]};
+QWidget#lyricsModeRow {{
+    background-color: transparent;
 }}
-QTabBar::tab {{
+QToolButton#lyricsTabBtnFirst,
+QToolButton#lyricsTabBtnSecond {{
     background-color: {p["bg_elevated"]};
     color: {p["text_muted"]};
-    padding: 8px 18px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    margin-right: 2px;
+    padding: 4px 12px;
+    min-height: 22px;
+    font-size: 9pt;
+    border: 1px solid {p["border"]};
+    border-bottom: none;
 }}
-QTabBar::tab:selected {{
+QToolButton#lyricsTabBtnFirst {{
+    border-top-left-radius: 4px;
+    border-right: none;
+}}
+QToolButton#lyricsTabBtnSecond {{
+    border-top-right-radius: 4px;
+}}
+QToolButton#lyricsTabBtnFirst:checked,
+QToolButton#lyricsTabBtnSecond:checked {{
     background-color: {p["tab_selected"]};
     color: {p["accent"]};
     font-weight: 600;
+}}
+QStackedWidget#lyricsStack {{
+    border: 1px solid {p["border"]};
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    background-color: {p["bg_card"]};
 }}
 QProgressBar {{
     background-color: {p["bg_card"]};
@@ -174,6 +187,12 @@ QProgressBar::chunk {{
     background-color: {p["accent"]};
     border-radius: 5px;
 }}
+QProgressBar#downloadProgressBar {{
+    min-height: 10px;
+    max-height: 12px;
+    font-size: 8pt;
+    border-radius: 4px;
+}}
 QScrollArea {{
     border: none;
     background-color: transparent;
@@ -182,9 +201,28 @@ QScrollArea#lyricsScroll {{
     background-color: {p["bg_card"]};
     border: none;
 }}
-QSplitter::handle {{
-    background-color: {p["border"]};
-    width: 1px;
+QScrollArea#lyricsScroll QLabel#lyricsLabel {{
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
+}}
+QSplitter#mainSplitter::handle:horizontal {{
+    width: 4px;
+    background-color: {p["bg_main"]};
+}}
+QSplitter#mainSplitter::handle:vertical {{
+    height: 4px;
+    background-color: {p["bg_main"]};
+}}
+QSplitter#outerSplitter::handle:horizontal {{
+    width: 4px;
+    background-color: {p["bg_main"]};
+}}
+QSplitter#outerSplitter::handle:vertical {{
+    height: 4px;
+    background-color: {p["bg_main"]};
+}}
+QWidget#lyricsWidget {{
+    background-color: transparent;
 }}
 QMenu {{
     background-color: {p["menu_bg"]};
@@ -204,10 +242,49 @@ QStatusBar {{
     background-color: {p["status_bg"]};
     border-top: 1px solid {p["border"]};
     color: {p["text_secondary"]};
-    padding: 2px 8px;
+    padding: 0px 6px;
+    margin: 0px;
+}}
+QStatusBar::item {{
+    border: none;
 }}
 QDialog {{
     background-color: {p["bg_main"]};
+}}
+QDialog#downloadDialog {{
+    background-color: {p["bg_elevated"]};
+}}
+QDialog#downloadDialog QLabel {{
+    color: {p["text_primary"]};
+}}
+QDialog#downloadDialog QPlainTextEdit,
+QDialog#downloadDialog QTextEdit {{
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    border-radius: 6px;
+    padding: 8px;
+    selection-background-color: {p["accent"]};
+    selection-color: #ffffff;
+}}
+QDialog#downloadDialog QComboBox {{
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-height: 22px;
+}}
+QDialog#downloadDialog QComboBox::drop-down {{
+    border: none;
+    width: 22px;
+}}
+QDialog#downloadDialog QComboBox QAbstractItemView {{
+    background-color: {p["menu_bg"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    selection-background-color: {p["selection_bg"]};
+    selection-color: {p["selection_fg"]};
 }}
 QDialog QPushButton {{
     background-color: {p["bg_card"]};
@@ -250,14 +327,14 @@ QPushButton#playlistAddBtn {{
     background-color: transparent;
     color: {p["text_secondary"]};
     border: 1px solid {p["border"]};
-    border-radius: 6px;
-    font-size: 16px;
+    border-radius: 5px;
+    font-size: 15px;
     font-weight: 600;
-    padding: 0px;
-    min-width: 28px;
-    max-width: 28px;
-    min-height: 28px;
-    max-height: 28px;
+    padding: 0px 0px 1px 0px;
+    min-width: 26px;
+    max-width: 26px;
+    min-height: 26px;
+    max-height: 26px;
 }}
 QPushButton#playlistAddBtn:hover {{
     background-color: {p["menu_hover"]};
@@ -291,7 +368,8 @@ QLabel#playlistTitle {{
     font-size: 10pt;
 }}
 QLabel#lyricsLabel {{
-    color: {p["text_secondary"]};
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
     font-size: 10pt;
     line-height: 1.6;
     padding: 12px;
@@ -317,8 +395,10 @@ QListWidget#jobListWidget {{
 QWidget#queueHeaderRow {{
     background-color: {p["bg_main"]};
 }}
+QWidget#playerBottomPanel {{
+    background-color: {p["bg_main"]};
+}}
 QWidget#playerWidget {{
-    border-top: 1px solid {p["player_border"]};
     background-color: {p["bg_main"]};
 }}
 QFrame#progressStrip {{
@@ -329,19 +409,37 @@ QVideoWidget#videoArea {{
     background-color: #000000;
     border-radius: 8px;
 }}
-QSlider::groove:horizontal {{
+QSlider#seekSlider::groove:horizontal,
+QSlider#volSlider::groove:horizontal {{
+    border: none;
+    height: 5px;
     background-color: {p["border"]};
-    height: 4px;
+    border-radius: 2px;
+    margin: 2px 0;
+}}
+QSlider#seekSlider::sub-page:horizontal,
+QSlider#volSlider::sub-page:horizontal {{
+    background-color: {p["accent"]};
+    border-radius: 2px;
+    height: 5px;
+}}
+QSlider#seekSlider::add-page:horizontal,
+QSlider#volSlider::add-page:horizontal {{
+    background-color: {p["border"]};
+    border-radius: 2px;
+    height: 5px;
+}}
+QSlider#seekSlider::handle:horizontal,
+QSlider#volSlider::handle:horizontal {{
+    background-color: {p["accent"]};
+    border: 1px solid {p["bg_card"]};
+    width: 10px;
+    height: 10px;
+    margin: -3px 0;
     border-radius: 2px;
 }}
-QSlider::handle:horizontal {{
-    background-color: {p["accent"]};
-    width: 14px;
-    height: 14px;
-    margin: -6px 0;
-    border-radius: 7px;
-}}
-QSlider::handle:horizontal:hover {{
+QSlider#seekSlider::handle:horizontal:hover,
+QSlider#volSlider::handle:horizontal:hover {{
     background-color: {p["accent_hover"]};
 }}
 QScrollBar:vertical {{

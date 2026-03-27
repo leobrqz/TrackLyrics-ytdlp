@@ -5,7 +5,7 @@ always be reopened after collapsing the job list.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +38,9 @@ _STATUS_COLOR = {
 
 
 class ProgressWidget(QWidget):
+    """Emitted when queue visibility changes so the main window can refresh splitter limits."""
+    layout_changed = Signal()
+
     def __init__(self, queue: DownloadQueue, parent=None) -> None:
         super().__init__(parent)
         self._queue = queue
@@ -51,7 +55,7 @@ class ProgressWidget(QWidget):
         self._queue_header.setObjectName("queueHeaderRow")
         self._queue_header.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         hdr = QHBoxLayout(self._queue_header)
-        hdr.setContentsMargins(10, 6, 10, 4)
+        hdr.setContentsMargins(10, 4, 10, 2)
         hdr.setSpacing(8)
 
         self._header_label = QLabel("Queue (0 jobs)")
@@ -84,10 +88,11 @@ class ProgressWidget(QWidget):
         root.addWidget(self._list_frame)
 
         strip = QFrame()
+        self._strip = strip
         strip.setObjectName("progressStrip")
         strip_layout = QHBoxLayout(strip)
-        strip_layout.setContentsMargins(10, 6, 10, 6)
-        strip_layout.setSpacing(12)
+        strip_layout.setContentsMargins(10, 4, 10, 2)
+        strip_layout.setSpacing(8)
 
         self._status_label = QLabel("Idle")
         self._status_label.setObjectName("progressTrackLabel")
@@ -95,7 +100,8 @@ class ProgressWidget(QWidget):
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
-        self._progress_bar.setFixedWidth(220)
+        self._progress_bar.setFixedWidth(180)
+        self._progress_bar.setTextVisible(True)
         self._progress_bar.setObjectName("downloadProgressBar")
 
         self._pending_label = QLabel("")
@@ -109,6 +115,13 @@ class ProgressWidget(QWidget):
 
         self._list_frame.hide()
         self._toggle_btn.setText("Show queue")
+        self._sync_size_policy()
+
+    def apply_minimum_from_layout(self) -> None:
+        self.updateGeometry()
+        lay = self.layout()
+        if lay is not None:
+            self.setMinimumHeight(lay.totalMinimumSize().height())
 
     def on_progress_updated(self, job_id: str, percent: int) -> None:
         self._progress_bar.setValue(percent)
@@ -126,11 +139,13 @@ class ProgressWidget(QWidget):
         self._refresh_list()
         self._list_frame.show()
         self._toggle_btn.setText("Hide")
+        self._sync_size_policy()
 
     def expand_queue(self) -> None:
-        """Show the job list (toolbar / menu entry)."""
+        """Show the job list (e.g. after adding downloads)."""
         self._list_frame.show()
         self._toggle_btn.setText("Hide")
+        self._sync_size_policy()
 
     def _refresh_list(self) -> None:
         jobs = self._queue.all_jobs()
@@ -159,3 +174,17 @@ class ProgressWidget(QWidget):
         show = not self._list_frame.isVisible()
         self._list_frame.setVisible(show)
         self._toggle_btn.setText("Hide" if show else "Show queue")
+        self._sync_size_policy()
+
+    def _sync_size_policy(self) -> None:
+        """
+        When the queue is collapsed, keep the status strip height stable.
+        When expanded, allow the widget to grow so the job list can show.
+        """
+        if self._list_frame.isVisible():
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        else:
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.updateGeometry()
+        self.apply_minimum_from_layout()
+        self.layout_changed.emit()

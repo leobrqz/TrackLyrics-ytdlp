@@ -45,6 +45,7 @@ class PlayerWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("playerWidget")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         style = self.style()
         play_ic, pause_ic, back_ic, forward_ic = _media_icons(style)
@@ -54,7 +55,7 @@ class PlayerWidget(QWidget):
         root.setSpacing(8)
 
         self._video_area = video_widget
-        self._video_area.setMinimumHeight(180)
+        self._video_area.setMinimumHeight(0)
         self._video_area.setObjectName("videoArea")
         self._video_area.hide()
         root.addWidget(self._video_area)
@@ -170,6 +171,16 @@ class PlayerWidget(QWidget):
 
         root.addLayout(ctrl_row)
 
+        self.apply_minimum_from_layout()
+
+    def apply_minimum_from_layout(self) -> None:
+        self.updateGeometry()
+        lay = self.layout()
+        if lay is None:
+            return
+        h = lay.totalMinimumSize().height()
+        self.setMinimumHeight(max(h, 120))
+
     def set_track_info(self, artist: str, title: str, fmt: str) -> None:
         self._track_label.setText(f"{artist} — {title}")
         self._format_label.setText(fmt.upper())
@@ -195,6 +206,8 @@ class PlayerWidget(QWidget):
 
     def set_video_visible(self, visible: bool) -> None:
         self._video_area.setVisible(visible)
+        self._video_area.setMinimumHeight(180 if visible else 0)
+        self.apply_minimum_from_layout()
 
     _duration_ms: int = 0
 

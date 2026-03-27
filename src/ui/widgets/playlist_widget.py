@@ -44,8 +44,11 @@ class PlaylistWidget(QWidget):
         new_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         new_btn.clicked.connect(self._on_new_playlist)
-        header.addWidget(title, stretch=1)
-        header.addWidget(new_btn)
+        header.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(
+            new_btn,
+            alignment=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+        )
         layout.addLayout(header)
 
         self._list = QListWidget()

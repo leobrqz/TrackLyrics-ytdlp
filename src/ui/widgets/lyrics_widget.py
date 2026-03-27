@@ -1,13 +1,27 @@
 """
 ui/widgets/lyrics_widget.py
-Two-tab panel showing original and PT-BR lyrics from local .md files.
+Original vs PT-BR lyrics from local .md files, shown in a stacked view.
+
+Uses QStackedWidget + tool buttons instead of QTabWidget: QTabWidget combines
+QTabBar + QStackedWidget with style-engine seams; Fusion + app-level QSS often
+leave a 1px line at the tab/pane junction where base-style palette shows through.
 Reloads when a track is selected or when lyrics_ready fires.
 """
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtWidgets import QLabel, QScrollArea, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 from PySide6.QtCore import Qt
 
 from core.models import Track
@@ -18,23 +32,71 @@ class LyricsWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("lyricsWidget")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._current_track: Optional[Track] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self._tabs = QTabWidget()
-        self._tabs.setObjectName("lyricsTabs")
+        mode_row = QWidget()
+        mode_row.setObjectName("lyricsModeRow")
+        mode_layout = QHBoxLayout(mode_row)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(0)
+
+        self._btn_orig = QToolButton()
+        self._btn_orig.setObjectName("lyricsTabBtnFirst")
+        self._btn_orig.setText("Original")
+        self._btn_orig.setCheckable(True)
+        self._btn_orig.setChecked(True)
+        self._btn_orig.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._btn_orig.setAutoRaise(True)
+        self._btn_orig.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_orig.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_orig.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+
+        self._btn_ptbr = QToolButton()
+        self._btn_ptbr.setObjectName("lyricsTabBtnSecond")
+        self._btn_ptbr.setText("PT-BR")
+        self._btn_ptbr.setCheckable(True)
+        self._btn_ptbr.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._btn_ptbr.setAutoRaise(True)
+        self._btn_ptbr.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_ptbr.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_ptbr.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._group.addButton(self._btn_orig, 0)
+        self._group.addButton(self._btn_ptbr, 1)
+        self._group.idClicked.connect(self._on_mode_id)
+
+        mode_layout.addWidget(self._btn_orig, 0, Qt.AlignmentFlag.AlignLeft)
+        mode_layout.addWidget(self._btn_ptbr, 0, Qt.AlignmentFlag.AlignLeft)
+        mode_layout.addStretch(1)
+
+        self._stack = QStackedWidget()
+        self._stack.setObjectName("lyricsStack")
 
         self._orig_label = self._make_scroll_label()
         self._ptbr_label = self._make_scroll_label()
 
-        self._tabs.addTab(self._orig_label["scroll"], "Original")
-        self._tabs.addTab(self._ptbr_label["scroll"], "PT-BR")
+        self._stack.addWidget(self._orig_label["scroll"])
+        self._stack.addWidget(self._ptbr_label["scroll"])
 
-        layout.addWidget(self._tabs)
+        layout.addWidget(mode_row)
+        layout.addWidget(self._stack, stretch=1)
+
         self._show_placeholder(self._orig_label["label"])
         self._show_placeholder(self._ptbr_label["label"])
+
+    def _on_mode_id(self, index: int) -> None:
+        self._stack.setCurrentIndex(index)
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -45,8 +107,8 @@ class LyricsWidget(QWidget):
     def on_lyrics_ready(self, track_id: int) -> None:
         """Called when the worker finishes scraping a track's lyrics."""
         if self._current_track and self._current_track.id == track_id:
-            # Reload the track from DB to get updated lyrics ref
             import core.library as library
+
             updated = library.get_track_by_id(track_id)
             if updated:
                 updated.lyrics = library.get_lyrics(track_id)
