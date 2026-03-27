@@ -1,27 +1,104 @@
-# TrackLyrics-ytdl
+<div align="center">
 
-Local-first desktop app: download **audio** (mp3/wav) from YouTube with **yt-dlp**, keep a **SQLite** library, fetch **lyrics** from **letras.mus.br** (via DuckDuckGo HTML search, Playwright), and play audio with **PySide6** (`QMediaPlayer` + `QAudioOutput`). UI preferences live in **`app_settings.json`**.
+# TrackLyrics
 
-## Documentation
+Download **songs** from YouTube, fetch **lyrics** from **letras.mus.br** and play everything with a **PySide6** UI.
 
-| Document | Contents |
-|----------|----------|
-| [docs/architecture.md](docs/architecture.md) | System overview, dependencies, module map, cross-cutting rules |
-| [docs/interface.md](docs/interface.md) | UI layout, widgets, theme, threading, dialogs |
-| [docs/storage.md](docs/storage.md) | Paths, `library.db` schema, validation |
-| [docs/player.md](docs/player.md) | Playback stack and behavior |
-| [docs/scrapping.md](docs/scrapping.md) | Lyrics scraping flow (query, selectors, scoring) |
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![PySide6](https://img.shields.io/badge/PySide-6-green?style=flat&logo=qt)](https://doc.qt.io/qtforpython-6/)
+[![yt-dlp](https://img.shields.io/badge/yt--dlp-2026.3-red?style=flat)](https://github.com/yt-dlp/yt-dlp)
 
-## Run
+</div>
 
-From the repository root, with Python 3.10+ and dependencies installed:
+Runs entirely on your machine: no accounts, no cloud library. Theme and simple preferences persist in **`app_settings.json`** next to **`library.db`** and your **`tracks/`** folder.
+
+
+Please read the [disclaimer](#disclaimer) before using this software.
+
+## Stack
+
+| Layer | Tech |
+|-------|------|
+| UI | PySide6 |
+| Download | yt-dlp |
+| Conversion | FFmpeg |
+| Storage | SQLite + filesystem |
+| Lyrics | Playwright, RapidFuzz, requests |
+
+## Features
+
+### Download & queue
+
+- Paste one or many **YouTube URLs**.
+- **Sequential queue** with progress and status in the bottom strip.
+- **Duplicate detection** by normalized artist/title (warning only; does not block saving).
+
+### Library & playlists
+
+- **Search** the track list; **favorites** (star) per track.
+- **Playlists**: create, rename, add/remove tracks, **All tracks** vs playlist view.
+- **Delete** removes DB row and track folder on disk.
+
+### Lyrics
+
+- Scrapes **letras.mus.br** via DuckDuckGo HTML search and **Playwright.**
+- **Original** and **PT-BR** tabs when both exist; lyrics stored as `.md` under each track’s `lyrics/` folder.
+
+### Player
+
+- **Audio-only** playback: play/pause, prev/next, seek, volume.
+- Queue follows the **current library or playlist** view.
+
+### Interface
+
+- **Dark / light** theme from the toolbar.
+
+
+
+
+## Setup
+
+You can either run the app yourself with Python or download the .exe file from the [releases](https://github.com/leobrqz/TrackLyrics-ytdl/releases) page.
+
+
+### 1. Clone the project
+
+```bash
+git clone https://github.com/leobrqz/TrackLyrics-ytdl.git
+cd TrackLyrics-ytdl
+```
+
+
+### 2. Install dependencies
+
+- Set up Python environment
+
+```bash
+pip install -r requirements.txt
+playwright install
+```
+
+### 3. Start the app
+
+From the repository root:
 
 ```bash
 cd src && python main.py
 ```
 
-Or set `PYTHONPATH` to `src` and run `python main.py` from `src/`. Install packages from `requirements.txt`; **FFmpeg** must be available for conversion where used.
 
 ## License
 
-See [LICENSE](LICENSE).
+See [LICENSE](LICENSE) (GNU General Public License v3).
+
+
+## Disclaimer
+
+This software is shared for **learning and personal experimentation** (desktop UI, local media libraries, automation concepts). It is **not** a commercial product and **not** offered as a tool to bypass restrictions or policies of third-party services.
+
+This project is **not affiliated with**, endorsed by, or sponsored by YouTube, DuckDuckGo, letras.mus.br, or any other third-party site or service it may interact with.
+
+Lyrics retrieval uses **Playwright** with **`headless=False`** (a real browser window, not headless mode). Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
+
+The software is provided **as-is**, without warranty; **no liability** is accepted for damages, account actions, or legal consequences arising from use or misuse.
