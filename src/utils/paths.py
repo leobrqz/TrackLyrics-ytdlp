@@ -9,7 +9,7 @@ from pathlib import Path
 APP_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 DB_PATH: Path = APP_ROOT / "library.db"
-SETTINGS_DB_PATH: Path = APP_ROOT / "app_settings.db"
+SETTINGS_JSON_PATH: Path = APP_ROOT / "app_settings.json"
 TRACKS_DIR: Path = APP_ROOT / "tracks"
 TEMP_DIR: Path = APP_ROOT / "temp"
 LOGS_DIR: Path = APP_ROOT / "logs"

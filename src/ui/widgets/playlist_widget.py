@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -28,14 +29,15 @@ class PlaylistWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("playlistWidget")
-        self.setMaximumWidth(240)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.setFixedWidth(240)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
 
         header = QHBoxLayout()
-        header.setContentsMargins(8, 6, 8, 4)
+        header.setContentsMargins(4, 6, 4, 4)
         title = QLabel("Playlists")
         title.setObjectName("playlistTitle")
         new_btn = QPushButton("+")

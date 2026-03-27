@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+import core.library as library
+
 from core.models import Track
 from utils.paths import TRACKS_DIR
 
@@ -101,19 +103,29 @@ class LyricsWidget(QWidget):
     # ── Public API ──────────────────────────────────────────────────────────
 
     def load_track(self, track: Track) -> None:
-        self._current_track = track
+        # Always reload from DB — list items may hold stale Track objects from
+        # a refresh that ran before lyrics were scraped.
+        fresh = library.get_track_by_id(track.id)
+        if fresh:
+            fresh.media_files = library.get_media_files(track.id)
+            fresh.lyrics = library.get_lyrics(track.id)
+            self._current_track = fresh
+        else:
+            self._current_track = track
         self._reload()
 
     def on_lyrics_ready(self, track_id: int) -> None:
         """Called when the worker finishes scraping a track's lyrics."""
-        if self._current_track and self._current_track.id == track_id:
-            import core.library as library
-
-            updated = library.get_track_by_id(track_id)
-            if updated:
-                updated.lyrics = library.get_lyrics(track_id)
-                self._current_track = updated
-                self._reload()
+        tid = int(track_id)
+        if self._current_track is None or self._current_track.id != tid:
+            return
+        updated = library.get_track_by_id(tid)
+        if updated is None:
+            return
+        updated.media_files = library.get_media_files(tid)
+        updated.lyrics = library.get_lyrics(tid)
+        self._current_track = updated
+        self._reload()
 
     # ── Internal ────────────────────────────────────────────────────────────
 

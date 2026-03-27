@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QVBoxLayout,
 )
 
+from ui.delegates.combo_popup_delegate import ComboPopupDelegate
+
 
 class DownloadDialog(QDialog):
     def __init__(self, parent=None) -> None:
@@ -29,7 +31,8 @@ class DownloadDialog(QDialog):
 
         layout.addWidget(QLabel("Format:"))
         self._format_box = QComboBox()
-        self._format_box.addItems(["mp3", "mp4", "wav"])
+        self._format_box.addItems(["mp3", "wav"])
+        self._format_box.setItemDelegate(ComboPopupDelegate(self._format_box))
         layout.addWidget(self._format_box)
 
         buttons = QDialogButtonBox(

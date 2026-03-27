@@ -1,11 +1,13 @@
 """
 ui/widgets/player_widget.py
 Playback control bar: play/pause, previous, next, seek slider, volume, format label.
-Also contains the QVideoWidget area (shown/hidden based on whether mp4 is playing).
+Audio-only (no video).
 """
 from __future__ import annotations
 
+from core.settings import get_setting
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,6 +18,31 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+ICON_TINT_DARK = QColor("#e8eaed")
+
+
+def _tint_icon(icon: QIcon, color: QColor, size: QSize) -> QIcon:
+    pixmap = icon.pixmap(size)
+    if pixmap.isNull():
+        return icon
+    w, h = pixmap.width(), pixmap.height()
+    result = QPixmap(w, h)
+    result.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(result)
+    painter.fillRect(0, 0, w, h, color)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return QIcon(result)
+
+
+def _maybe_tint(icon: QIcon | None, dark: bool, size: QSize) -> QIcon | None:
+    if icon is None or icon.isNull():
+        return None
+    if dark:
+        return _tint_icon(icon, ICON_TINT_DARK, size)
+    return icon
 
 
 def _media_icons(style: QStyle) -> tuple:
@@ -40,25 +67,17 @@ class PlayerWidget(QWidget):
     next_clicked = Signal()
     seek_requested = Signal(int)
     volume_changed = Signal(float)
+    volume_committed = Signal(float)
 
-    def __init__(self, video_widget: QWidget, parent=None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("playerWidget")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        style = self.style()
-        play_ic, pause_ic, back_ic, forward_ic = _media_icons(style)
-
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 8, 12, 10)
         root.setSpacing(8)
-
-        self._video_area = video_widget
-        self._video_area.setMinimumHeight(0)
-        self._video_area.setObjectName("videoArea")
-        self._video_area.hide()
-        root.addWidget(self._video_area)
 
         info_row = QHBoxLayout()
         self._track_label = QLabel("–")
@@ -72,12 +91,14 @@ class PlayerWidget(QWidget):
 
         seek_row = QHBoxLayout()
         self._position_label = QLabel("0:00")
+        self._position_label.setObjectName("seekTimeLabel")
         self._position_label.setFixedWidth(44)
         self._seek_slider = QSlider(Qt.Orientation.Horizontal)
         self._seek_slider.setObjectName("seekSlider")
         self._seek_slider.setRange(0, 1000)
         self._seek_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._duration_label = QLabel("0:00")
+        self._duration_label.setObjectName("seekTimeLabel")
         self._duration_label.setFixedWidth(44)
         self._duration_label.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -97,32 +118,16 @@ class PlayerWidget(QWidget):
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        ic_size = QSize(22, 22)
-        if back_ic and not back_ic.isNull():
-            self._prev_btn.setIcon(back_ic)
-            self._prev_btn.setIconSize(ic_size)
-        else:
-            self._prev_btn.setText("⏮")
-
-        if play_ic and not play_ic.isNull():
-            self._play_btn.setIcon(play_ic)
-            self._play_btn.setIconSize(ic_size)
-        else:
-            self._play_btn.setText("▶")
-
-        if forward_ic and not forward_ic.isNull():
-            self._next_btn.setIcon(forward_ic)
-            self._next_btn.setIconSize(ic_size)
-        else:
-            self._next_btn.setText("⏭")
-
         self._prev_btn.clicked.connect(self.prev_clicked)
         self._play_btn.clicked.connect(self.play_pause_clicked)
         self._next_btn.clicked.connect(self.next_clicked)
 
-        self._transport_icons = (play_ic, pause_ic)
-        self._play_fallback = "▶"
-        self._pause_fallback = "⏸"
+        self._play_fallback = ">"
+        self._pause_fallback = "||"
+        self._playing = False
+        self._ic_size = QSize(22, 22)
+        self._icon_theme_dark = (get_setting("theme", "dark") or "dark") == "dark"
+        self._apply_transport_visuals()
 
         vol_label = QLabel("Vol")
         vol_label.setObjectName("volumeLabel")
@@ -137,11 +142,8 @@ class PlayerWidget(QWidget):
         self._vol_pct.setFixedWidth(36)
         self._vol_pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        def _on_volume(v: int) -> None:
-            self._vol_pct.setText(f"{v}%")
-            self.volume_changed.emit(v / 100.0)
-
-        self._vol_slider.valueChanged.connect(_on_volume)
+        self._vol_slider.valueChanged.connect(self._on_volume_slider_changed)
+        self._vol_slider.sliderReleased.connect(self._on_volume_slider_released)
 
         center = QWidget()
         center_l = QHBoxLayout(center)
@@ -173,6 +175,21 @@ class PlayerWidget(QWidget):
 
         self.apply_minimum_from_layout()
 
+    def set_volume_percent(self, pct: int) -> None:
+        """Set slider/label without emitting volume_changed (e.g. restore from settings)."""
+        v = max(0, min(100, int(pct)))
+        self._vol_slider.blockSignals(True)
+        self._vol_slider.setValue(v)
+        self._vol_slider.blockSignals(False)
+        self._vol_pct.setText(f"{v}%")
+
+    def _on_volume_slider_changed(self, v: int) -> None:
+        self._vol_pct.setText(f"{v}%")
+        self.volume_changed.emit(v / 100.0)
+
+    def _on_volume_slider_released(self) -> None:
+        self.volume_committed.emit(self._vol_slider.value() / 100.0)
+
     def apply_minimum_from_layout(self) -> None:
         self.updateGeometry()
         lay = self.layout()
@@ -180,6 +197,36 @@ class PlayerWidget(QWidget):
             return
         h = lay.totalMinimumSize().height()
         self.setMinimumHeight(max(h, 120))
+
+    def apply_theme(self, theme: str) -> None:
+        self._icon_theme_dark = theme == "dark"
+        self._apply_transport_visuals()
+
+    def _apply_transport_visuals(self) -> None:
+        raw_play, raw_pause, raw_back, raw_forward = _media_icons(self.style())
+        dark = self._icon_theme_dark
+        sz = self._ic_size
+        play_ic = _maybe_tint(raw_play, dark, sz)
+        pause_ic = _maybe_tint(raw_pause, dark, sz)
+        back_ic = _maybe_tint(raw_back, dark, sz)
+        forward_ic = _maybe_tint(raw_forward, dark, sz)
+        self._transport_icons = (play_ic or QIcon(), pause_ic or QIcon())
+
+        if back_ic and not back_ic.isNull():
+            self._prev_btn.setIcon(back_ic)
+            self._prev_btn.setIconSize(self._ic_size)
+            self._prev_btn.setText("")
+        else:
+            self._prev_btn.setIcon(QIcon())
+            self._prev_btn.setText("<<")
+        if forward_ic and not forward_ic.isNull():
+            self._next_btn.setIcon(forward_ic)
+            self._next_btn.setIconSize(self._ic_size)
+            self._next_btn.setText("")
+        else:
+            self._next_btn.setIcon(QIcon())
+            self._next_btn.setText(">>")
+        self.set_playing(self._playing)
 
     def set_track_info(self, artist: str, title: str, fmt: str) -> None:
         self._track_label.setText(f"{artist} — {title}")
@@ -197,17 +244,15 @@ class PlayerWidget(QWidget):
         self._duration_label.setText(_fmt_time(ms))
 
     def set_playing(self, playing: bool) -> None:
+        self._playing = playing
         pl, pa = self._transport_icons
         if pl and not pl.isNull() and pa and not pa.isNull():
             self._play_btn.setIcon(pa if playing else pl)
+            self._play_btn.setIconSize(self._ic_size)
             self._play_btn.setText("")
         else:
+            self._play_btn.setIcon(QIcon())
             self._play_btn.setText(self._pause_fallback if playing else self._play_fallback)
-
-    def set_video_visible(self, visible: bool) -> None:
-        self._video_area.setVisible(visible)
-        self._video_area.setMinimumHeight(180 if visible else 0)
-        self.apply_minimum_from_layout()
 
     _duration_ms: int = 0
 

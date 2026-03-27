@@ -11,7 +11,7 @@ from typing import Optional
 @dataclass
 class DownloadJob:
     url: str
-    format_type: str              # 'mp3' | 'mp4' | 'wav'
+    format_type: str              # 'mp3' | 'wav'
     job_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     status: str = "pending"       # 'pending' | 'running' | 'done' | 'failed'
     error: Optional[str] = None   # error message if failed

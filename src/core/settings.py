@@ -1,51 +1,49 @@
 """
 core/settings.py
-Key-value settings store backed by a separate app_settings.db SQLite file.
-Used for persisting UI preferences like the active theme.
+Key-value settings store backed by app_settings.json in the app root.
 """
-import sqlite3
-from typing import Optional
+from __future__ import annotations
 
-from utils.paths import SETTINGS_DB_PATH
+import json
+from typing import Any, Optional
 
+from utils.paths import SETTINGS_JSON_PATH
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(SETTINGS_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+_DEFAULTS: dict[str, Any] = {"theme": "dark"}
 
 
-def _ensure_table(conn: sqlite3.Connection) -> None:
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key   TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    """)
-    conn.commit()
+def _read_json() -> dict[str, Any]:
+    if not SETTINGS_JSON_PATH.exists():
+        return dict(_DEFAULTS)
+    try:
+        with open(SETTINGS_JSON_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return dict(_DEFAULTS)
+    if not isinstance(data, dict):
+        return dict(_DEFAULTS)
+    return {**_DEFAULTS, **data}
+
+
+def _write_json(data: dict[str, Any]) -> None:
+    SETTINGS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS_JSON_PATH.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    tmp.replace(SETTINGS_JSON_PATH)
 
 
 def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
-    conn = _get_conn()
-    try:
-        _ensure_table(conn)
-        row = conn.execute(
-            "SELECT value FROM settings WHERE key = ?", (key,)
-        ).fetchone()
-        return row["value"] if row else default
-    finally:
-        conn.close()
+    data = _read_json()
+    val = data.get(key, default)
+    if val is None:
+        return default
+    if isinstance(val, str):
+        return val
+    return str(val)
 
 
 def set_setting(key: str, value: str) -> None:
-    conn = _get_conn()
-    try:
-        _ensure_table(conn)
-        with conn:
-            conn.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
-    finally:
-        conn.close()
+    data = _read_json()
+    data[key] = value
+    _write_json(data)

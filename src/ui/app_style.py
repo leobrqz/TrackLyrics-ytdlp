@@ -25,6 +25,8 @@ DARK_PALETTE = {
     "scrollbar_handle": "#3f4654",
     "scrollbar_handle_hover": "#525a6a",
     "player_border": "#2a2e36",
+    "player_btn_bg": "#2d333d",
+    "player_btn_border": "#4b5563",
     "tab_selected": "#1e3a5f",
     "status_bg": "#14161a",
 }
@@ -49,6 +51,8 @@ LIGHT_PALETTE = {
     "scrollbar_handle": "#b8c0cc",
     "scrollbar_handle_hover": "#9ca3af",
     "player_border": "#d8dde6",
+    "player_btn_bg": "#ffffff",
+    "player_btn_border": "#d8dde6",
     "tab_selected": "#ffffff",
     "status_bg": "#ffffff",
 }
@@ -143,12 +147,26 @@ QLineEdit {{
 QLineEdit:focus {{
     border-color: {p["accent"]};
 }}
+/* Combo popups are top-level; shell colors are global. Hover/focus item frames use ComboPopupDelegate. */
+QComboBox QAbstractItemView {{
+    outline: none;
+    background-color: {p["menu_bg"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    selection-background-color: {p["selection_bg"]};
+    selection-color: {p["selection_fg"]};
+}}
+QComboBox QAbstractItemView::item {{
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 4px;
+}}
 QWidget#lyricsModeRow {{
     background-color: transparent;
 }}
 QToolButton#lyricsTabBtnFirst,
 QToolButton#lyricsTabBtnSecond {{
-    background-color: {p["bg_elevated"]};
+    background-color: {p["bg_card"]};
     color: {p["text_muted"]};
     padding: 4px 12px;
     min-height: 22px;
@@ -165,7 +183,7 @@ QToolButton#lyricsTabBtnSecond {{
 }}
 QToolButton#lyricsTabBtnFirst:checked,
 QToolButton#lyricsTabBtnSecond:checked {{
-    background-color: {p["tab_selected"]};
+    background-color: {p["bg_card"]};
     color: {p["accent"]};
     font-weight: 600;
 }}
@@ -227,16 +245,22 @@ QWidget#lyricsWidget {{
 QMenu {{
     background-color: {p["menu_bg"]};
     border: 1px solid {p["border"]};
-    border-radius: 8px;
-    padding: 4px;
+    border-radius: 6px;
+    padding: 2px;
 }}
 QMenu::item {{
     color: {p["text_primary"]};
-    padding: 8px 24px;
-    border-radius: 4px;
+    padding: 4px 12px;
+    border-radius: 3px;
+    min-height: 1em;
 }}
 QMenu::item:selected {{
     background-color: {p["menu_hover"]};
+}}
+QMenu::separator {{
+    height: 1px;
+    margin: 2px 8px;
+    background-color: {p["border"]};
 }}
 QStatusBar {{
     background-color: {p["status_bg"]};
@@ -275,16 +299,33 @@ QDialog#downloadDialog QComboBox {{
     padding: 5px 10px;
     min-height: 22px;
 }}
+QDialog#downloadDialog QComboBox:focus {{
+    border: 1px solid {p["accent"]};
+}}
 QDialog#downloadDialog QComboBox::drop-down {{
     border: none;
     width: 22px;
 }}
-QDialog#downloadDialog QComboBox QAbstractItemView {{
-    background-color: {p["menu_bg"]};
+QDialog#addToPlaylistDialog {{
+    background-color: {p["bg_elevated"]};
+}}
+QDialog#addToPlaylistDialog QLabel {{
+    color: {p["text_primary"]};
+}}
+QDialog#addToPlaylistDialog QComboBox {{
+    background-color: {p["bg_card"]};
     color: {p["text_primary"]};
     border: 1px solid {p["border"]};
-    selection-background-color: {p["selection_bg"]};
-    selection-color: {p["selection_fg"]};
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-height: 22px;
+}}
+QDialog#addToPlaylistDialog QComboBox:focus {{
+    border: 1px solid {p["accent"]};
+}}
+QDialog#addToPlaylistDialog QComboBox::drop-down {{
+    border: none;
+    width: 22px;
 }}
 QDialog QPushButton {{
     background-color: {p["bg_card"]};
@@ -304,9 +345,9 @@ QDialog QPushButton:default {{
     border-color: {p["accent"]};
 }}
 QPushButton#playerBtn {{
-    background-color: {p["bg_card"]};
+    background-color: {p["player_btn_bg"]};
     color: {p["text_primary"]};
-    border: 1px solid {p["border"]};
+    border: 1px solid {p["player_btn_border"]};
     border-radius: 22px;
     padding: 0px;
     min-width: 44px;
@@ -382,6 +423,10 @@ QLabel#progressTrackLabel, QLabel#pendingLabel, QLabel#volumeLabel {{
     color: {p["text_muted"]};
     font-size: 9pt;
 }}
+QLabel#seekTimeLabel {{
+    color: {p["text_primary"]};
+    font-size: 9pt;
+}}
 QFrame#queueListFrame {{
     background-color: {p["bg_elevated"]};
     border: 1px solid {p["border"]};
@@ -404,10 +449,6 @@ QWidget#playerWidget {{
 QFrame#progressStrip {{
     background-color: {p["bg_main"]};
     border-top: 1px solid {p["player_border"]};
-}}
-QVideoWidget#videoArea {{
-    background-color: #000000;
-    border-radius: 8px;
 }}
 QSlider#seekSlider::groove:horizontal,
 QSlider#volSlider::groove:horizontal {{

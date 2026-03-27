@@ -13,7 +13,7 @@ class MediaFile:
     id: int
     track_id: int
     file_name: str
-    format_type: str       # 'mp3' | 'mp4' | 'wav'
+    format_type: str       # 'mp3' | 'wav' (legacy rows may list other formats)
     has_audio: bool
     has_video: bool
 

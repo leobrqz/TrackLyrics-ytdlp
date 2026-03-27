@@ -6,13 +6,12 @@ Pipeline per job:
   1. Download media via yt-dlp
   2. Detect duplicates (warn only, never block)
   3. Move file into tracks/<folder_name>/
-  4. Optionally convert to requested format
-  5. Insert track + media_files + blank lyrics row into DB
-  6. Emit track_saved → UI refreshes library
-  7. Scrape lyrics (non-blocking on failure)
-  8. Save lyrics .md files to disk
-  9. Update lyrics row in DB
-  10. Emit lyrics_ready → UI refreshes lyrics panel
+  4. Insert track + media_files + blank lyrics row into DB
+  5. Emit track_saved → UI refreshes library
+  6. Scrape lyrics (non-blocking on failure)
+  7. Save lyrics .md files to disk
+  8. Update lyrics row in DB (includes letras URLs when successful)
+  9. Emit lyrics_ready → UI refreshes lyrics panel
 """
 from __future__ import annotations
 
@@ -24,7 +23,6 @@ from PySide6.QtCore import QThread, Signal
 
 import core.library as library
 from download.downloader import download, DownloadError
-from download.converter import convert, ConversionError
 from download.queue import DownloadJob, DownloadQueue
 from lyrics.scraper import scrape_lyrics_sync
 from utils.logger import get_logger, log_structured
@@ -33,9 +31,7 @@ from utils.sanitize import build_track_name
 
 log = get_logger(__name__)
 
-# Audio-only formats
 AUDIO_FORMATS = {"mp3", "wav"}
-VIDEO_FORMATS = {"mp4"}
 
 
 class DownloadWorker(QThread):
@@ -88,7 +84,8 @@ class DownloadWorker(QThread):
         title: str = meta["title"]
         artist: str = meta["artist"]
         duration: int = meta["duration"]
-        source_url: str = meta["source_url"]
+        # YouTube URL used for this download (same as user-submitted job URL)
+        source_url: str = meta.get("source_url") or job.url
         downloaded_file: Path = meta["file_path"]
 
         # ── Step 2: Duplicate detection (warn only) ──────────────────────────
@@ -140,7 +137,6 @@ class DownloadWorker(QThread):
             return
 
         has_audio = job.format_type in AUDIO_FORMATS
-        has_video = job.format_type in VIDEO_FORMATS
 
         # ── Step 5: Register primary media file in DB ────────────────────────
         try:
@@ -149,7 +145,7 @@ class DownloadWorker(QThread):
                 file_name=dest_file.name,
                 format_type=job.format_type,
                 has_audio=has_audio,
-                has_video=has_video,
+                has_video=False,
             )
         except Exception as exc:
             self._fail(job, "Storage Error", str(exc), "Could not register media file in library.")

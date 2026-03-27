@@ -25,11 +25,13 @@ def _format_duration(seconds: int) -> str:
 class LibraryWidget(QWidget):
     track_selected = Signal(object)       # Track
     request_add_to_playlist = Signal(object)  # Track, triggers context menu logic
+    request_remove_from_playlist = Signal(object)  # Track, when viewing a playlist
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._all_tracks: list[Track] = []
         self._filtered_tracks: list[Track] = []
+        self._playlist_context_id: Optional[int] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -58,14 +60,31 @@ class LibraryWidget(QWidget):
     # ── Public API ──────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
-        """Reload all tracks from DB and re-render."""
+        """Reload all tracks from DB and re-render. Keeps the same row selected by track id."""
+        selected_id: Optional[int] = None
+        item = self._list.currentItem()
+        if item:
+            t = item.data(Qt.ItemDataRole.UserRole)
+            if t:
+                selected_id = t.id
         self._all_tracks = library.get_all_tracks_full()
         self._apply_filter()
+        if selected_id is not None:
+            for i in range(self._list.count()):
+                it = self._list.item(i)
+                tr = it.data(Qt.ItemDataRole.UserRole)
+                if tr and tr.id == selected_id:
+                    self._list.setCurrentRow(i)
+                    break
 
     def set_tracks(self, tracks: list[Track]) -> None:
         """Override displayed tracks (e.g. playlist filtered view)."""
         self._filtered_tracks = tracks
         self._render(tracks)
+
+    def set_playlist_context(self, playlist_id: Optional[int]) -> None:
+        """When viewing a playlist, pass its id; None for All tracks."""
+        self._playlist_context_id = playlist_id
 
     # ── Internal ────────────────────────────────────────────────────────────
 
@@ -109,6 +128,9 @@ class LibraryWidget(QWidget):
         fav_label = "Remove from Favorites" if track.favorite else "Add to Favorites"
         fav_action = menu.addAction(fav_label)
         add_pl_action = menu.addAction("Add to Playlist…")
+        remove_pl_action = None
+        if self._playlist_context_id is not None:
+            remove_pl_action = menu.addAction("Remove from Playlist")
         menu.addSeparator()
         del_action = menu.addAction("Delete Track")
 
@@ -118,6 +140,8 @@ class LibraryWidget(QWidget):
             self.refresh()
         elif action == add_pl_action:
             self.request_add_to_playlist.emit(track)
+        elif remove_pl_action is not None and action == remove_pl_action:
+            self.request_remove_from_playlist.emit(track)
         elif action == del_action:
             self._delete_track(track)
 

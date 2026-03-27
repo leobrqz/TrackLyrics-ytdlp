@@ -24,6 +24,7 @@ import core.playlist_manager as pm
 from core.settings import get_setting, set_setting
 from download.queue import DownloadJob, DownloadQueue
 from player.playback_manager import PlaybackManager
+from ui.dialogs.add_to_playlist_dialog import AddToPlaylistDialog
 from ui.dialogs.download_dialog import DownloadDialog
 from ui.dialogs.duplicate_dialog import DuplicateDialog
 from ui.dialogs.error_dialog import ErrorDialog
@@ -47,6 +48,7 @@ class MainWindow(QMainWindow):
         self._queue = DownloadQueue()
         self._worker = DownloadWorker(self._queue)
         self._playback = PlaybackManager(self)
+        self._active_playlist_id: int | None = None
 
         # ── Build UI (central before toolbar: progress widget needed for wiring) ─
         self._build_central()
@@ -56,6 +58,7 @@ class MainWindow(QMainWindow):
         # ── Wire signals ─────────────────────────────────────────────────────
         self._wire_worker()
         self._wire_playback()
+        self._apply_saved_volume()
 
         # ── Start worker ─────────────────────────────────────────────────────
         self._worker.start()
@@ -126,10 +129,10 @@ class MainWindow(QMainWindow):
         self._h_splitter.setStretchFactor(0, 0)
         self._h_splitter.setStretchFactor(1, 3)
         self._h_splitter.setStretchFactor(2, 2)
+        # Match first pane width to the fixed playlist column so extra space goes to library/lyrics.
+        self._h_splitter.setSizes([240, 520, 380])
 
-        self._player_widget = PlayerWidget(
-            video_widget=self._playback.get_video_widget()
-        )
+        self._player_widget = PlayerWidget()
         self._progress_widget = ProgressWidget(queue=self._queue)
 
         bottom_panel = QWidget()
@@ -158,10 +161,13 @@ class MainWindow(QMainWindow):
         root.addWidget(self._v_splitter, stretch=1)
 
         # ── Playlist ↔ library wiring ────────────────────────────────────────
-        self._playlist_widget.all_tracks_selected.connect(self._library_widget.refresh)
+        self._playlist_widget.all_tracks_selected.connect(self._on_all_tracks_selected)
         self._playlist_widget.playlist_selected.connect(self._on_playlist_selected)
         self._library_widget.track_selected.connect(self._on_track_selected)
         self._library_widget.request_add_to_playlist.connect(self._on_add_to_playlist)
+        self._library_widget.request_remove_from_playlist.connect(
+            self._on_remove_from_playlist
+        )
 
     # ── Signal wiring ────────────────────────────────────────────────────────
 
@@ -170,7 +176,7 @@ class MainWindow(QMainWindow):
         w.progress_updated.connect(self._progress_widget.on_progress_updated)
         w.status_changed.connect(self._progress_widget.on_status_changed)
         w.track_saved.connect(self._on_track_saved)
-        w.lyrics_ready.connect(self._lyrics_widget.on_lyrics_ready)
+        w.lyrics_ready.connect(self._on_lyrics_ready)
         w.duplicate_detected.connect(self._on_duplicate)
         w.error_occurred.connect(self._on_error)
         self._progress_widget.layout_changed.connect(self._lock_bottom_splitter_limits)
@@ -179,10 +185,10 @@ class MainWindow(QMainWindow):
         pm = self._playback
         pm.position_changed.connect(self._player_widget.set_position)
         pm.duration_changed.connect(self._player_widget.set_duration)
-        pm.video_visible.connect(self._player_widget.set_video_visible)
-        pm.video_visible.connect(lambda _v: self._lock_bottom_splitter_limits())
         pm.error_occurred.connect(
-            lambda msg: self._on_error("Playback Error", msg, "Try selecting another format.")
+            lambda msg: self._on_error(
+                "Playback Error", msg, "Ensure the track has an mp3 or wav file on disk."
+            )
         )
         pm.track_changed.connect(self._on_playback_track_changed)
 
@@ -192,6 +198,21 @@ class MainWindow(QMainWindow):
         pw.next_clicked.connect(self._playback.next_track)
         pw.seek_requested.connect(self._playback.seek)
         pw.volume_changed.connect(self._playback.set_volume)
+        pw.volume_committed.connect(self._persist_volume)
+
+    def _apply_saved_volume(self) -> None:
+        raw = get_setting("volume", "80")
+        try:
+            pct = int(float(str(raw).strip()))
+        except (TypeError, ValueError):
+            pct = 80
+        pct = max(0, min(100, pct))
+        self._player_widget.set_volume_percent(pct)
+        self._playback.set_volume(pct / 100.0)
+
+    def _persist_volume(self, level: float) -> None:
+        pct = max(0, min(100, round(level * 100)))
+        set_setting("volume", str(int(pct)))
 
     # ── Slots ────────────────────────────────────────────────────────────────
 
@@ -205,6 +226,10 @@ class MainWindow(QMainWindow):
             self._progress_widget.on_job_added()
 
     def _on_track_saved(self, track_id: int) -> None:
+        self._library_widget.refresh()
+
+    def _on_lyrics_ready(self, track_id: int) -> None:
+        self._lyrics_widget.on_lyrics_ready(track_id)
         self._library_widget.refresh()
 
     def _on_track_selected(self, track) -> None:
@@ -225,16 +250,21 @@ class MainWindow(QMainWindow):
         self._player_widget.set_playing(True)
 
     def _toggle_play(self) -> None:
-        from player.audio_player import AudioPlayer
-        active = self._playback._active_player()
-        if active.is_playing():
+        if self._playback.is_playing():
             self._playback.pause()
             self._player_widget.set_playing(False)
         else:
             self._playback.play()
             self._player_widget.set_playing(True)
 
+    def _on_all_tracks_selected(self) -> None:
+        self._active_playlist_id = None
+        self._library_widget.set_playlist_context(None)
+        self._library_widget.refresh()
+
     def _on_playlist_selected(self, playlist_id: int) -> None:
+        self._active_playlist_id = playlist_id
+        self._library_widget.set_playlist_context(playlist_id)
         tracks = pm.get_playlist_tracks(playlist_id)
         self._library_widget.set_tracks(tracks)
 
@@ -243,14 +273,23 @@ class MainWindow(QMainWindow):
         if not playlists:
             QMessageBox.information(self, "No Playlists", "Create a playlist first.")
             return
-        from PySide6.QtWidgets import QInputDialog
         names = [p.name for p in playlists]
-        name, ok = QInputDialog.getItem(
-            self, "Add to Playlist", "Choose playlist:", names, editable=False
+        dlg = AddToPlaylistDialog(names, parent=self)
+        if dlg.exec():
+            name = dlg.selected_playlist_name()
+            if not name:
+                return
+            playlist = next((p for p in playlists if p.name == name), None)
+            if playlist is not None:
+                pm.add_track_to_playlist(playlist.id, track.id)
+
+    def _on_remove_from_playlist(self, track) -> None:
+        if self._active_playlist_id is None:
+            return
+        pm.remove_track_from_playlist(self._active_playlist_id, track.id)
+        self._library_widget.set_tracks(
+            pm.get_playlist_tracks(self._active_playlist_id)
         )
-        if ok and name:
-            playlist = next(p for p in playlists if p.name == name)
-            pm.add_track_to_playlist(playlist.id, track.id)
 
     def _on_duplicate(self, artist: str, title: str) -> None:
         dlg = DuplicateDialog(artist, title, self)
@@ -274,6 +313,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(get_stylesheet(theme))
+        self._player_widget.apply_theme(theme)
         QTimer.singleShot(0, self._lock_bottom_splitter_limits)
         if theme == "dark":
             self._theme_btn.setText("Light")

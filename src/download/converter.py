@@ -22,7 +22,7 @@ def convert(input_path: Path, target_format: str, output_path: Path) -> Path:
 
     Args:
         input_path:    Source file path.
-        target_format: Target format extension ('mp3', 'wav', 'mp4').
+        target_format: Target format extension ('mp3', 'wav').
         output_path:   Destination file path (including extension).
 
     Returns:
@@ -43,8 +43,6 @@ def convert(input_path: Path, target_format: str, output_path: Path) -> Path:
         cmd += ["-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k"]
     elif target_format == "wav":
         cmd += ["-vn", "-ar", "44100", "-ac", "2"]
-    elif target_format == "mp4":
-        cmd += ["-c:v", "copy", "-c:a", "aac"]
     else:
         raise ConversionError(f"Unsupported target format: {target_format!r}")
 

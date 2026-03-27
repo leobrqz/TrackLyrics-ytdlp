@@ -3,7 +3,7 @@ __pycache__
 
 # Runtime artifacts 
 library.db
-app_settings.db
+app_settings.json
 browser_data/
 tracks/
 temp/

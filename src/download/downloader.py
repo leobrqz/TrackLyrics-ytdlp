@@ -31,13 +31,16 @@ def download(
     Args:
         url: YouTube video URL.
         output_dir: Directory to save the downloaded file.
-        format_type: Requested format — 'mp3', 'mp4', or 'wav'.
+        format_type: Requested format — 'mp3' or 'wav' (audio-only).
         progress_callback: Optional callable(percent: int) for progress updates.
 
     Returns:
         dict with keys: title, artist, duration, source_url, file_path (Path)
     """
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if format_type not in ("mp3", "wav"):
+        raise DownloadError(f"Unsupported format: {format_type!r} (use mp3 or wav)")
 
     # yt-dlp output template — uses %(ext)s so postprocessors can change extension
     outtmpl = str(output_dir / "%(title)s.%(ext)s")
@@ -54,9 +57,7 @@ def download(
             "key": "FFmpegExtractAudio",
             "preferredcodec": "wav",
         })
-    # mp4: no postprocessor needed — download best mp4 directly
-
-    ydl_format = "bestaudio/best" if format_type in ("mp3", "wav") else "bestvideo+bestaudio/best"
+    ydl_format = "bestaudio/best"
 
     _meta: dict = {}
 
@@ -122,7 +123,7 @@ def _resolve_file(output_dir: Path, info: dict, format_type: str) -> Path:
             return candidate
 
     # Fallback: scan output_dir for the newest file matching the expected extension
-    ext = format_type  # 'mp3', 'mp4', 'wav'
+    ext = format_type  # 'mp3' | 'wav'
     candidates = sorted(output_dir.glob(f"*.{ext}"), key=os.path.getmtime, reverse=True)
     if candidates:
         return candidates[0]
