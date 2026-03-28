@@ -9,7 +9,9 @@ tracks/
 temp/
 logs/
 
-
+# Pyinstaller artifacts
+build
+release
 
 docs/
 

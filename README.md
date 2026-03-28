@@ -11,7 +11,7 @@ Download **songs** from YouTube, fetch **lyrics** from **letras.mus.br** and pla
 
 </div>
 
-Runs entirely on your machine: no accounts, no cloud library. Theme and simple preferences persist in **`app_settings.json`** next to **`library.db`** and your **`tracks/`** folder.
+Runs entirely on your machine: no accounts, no cloud library. Data stays local—next to the repo when you develop; the Windows **`.exe`** uses a folder under **Documents**, with a fallback folder next to the executable. 
 
 
 Please read the [disclaimer](#disclaimer) before using this software.
@@ -21,7 +21,7 @@ Please read the [disclaimer](#disclaimer) before using this software.
 | Layer | Tech |
 |-------|------|
 | UI | PySide6 |
-| Download | yt-dlp (+ FFmpeg for extract-audio) |
+| Download | yt-dlp |
 | Storage | SQLite + filesystem |
 | Lyrics | BeautifulSoup, RapidFuzz, curl_cffi |
 
