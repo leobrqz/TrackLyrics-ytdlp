@@ -13,8 +13,7 @@ SETTINGS_JSON_PATH: Path = APP_ROOT / "app_settings.json"
 TRACKS_DIR: Path = APP_ROOT / "tracks"
 TEMP_DIR: Path = APP_ROOT / "temp"
 LOGS_DIR: Path = APP_ROOT / "logs"
-BROWSER_DATA_DIR: Path = APP_ROOT / "browser_data"
 
 # Create directories on import (safe, idempotent)
-for _dir in (TRACKS_DIR, TEMP_DIR, LOGS_DIR, BROWSER_DATA_DIR):
+for _dir in (TRACKS_DIR, TEMP_DIR, LOGS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
