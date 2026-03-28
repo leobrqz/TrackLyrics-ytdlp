@@ -21,11 +21,14 @@ class DownloadDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        layout.addWidget(QLabel("YouTube URL(s) — one per line:"))
+        layout.addWidget(
+            QLabel("YouTube URL(s) — one per line (videos or playlists):")
+        )
 
         self._url_input = QPlainTextEdit()
         self._url_input.setPlaceholderText(
-            "https://www.youtube.com/watch?v=...\nhttps://www.youtube.com/watch?v=..."
+            "https://www.youtube.com/watch?v=...\n"
+            "https://www.youtube.com/playlist?list=..."
         )
         layout.addWidget(self._url_input)
 

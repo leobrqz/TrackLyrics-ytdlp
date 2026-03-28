@@ -11,7 +11,7 @@ Download **songs** from YouTube, fetch **lyrics** from **letras.mus.br** and pla
 
 </div>
 
-Runs entirely on your machine: no accounts, no cloud library. Theme and simple preferences persist in **`app_settings.json`** next to **`library.db`** and your **`tracks/`** folder.
+Runs entirely on your machine: no accounts, no cloud library. Data stays local next to the repo when you develop; the Windows **`.exe`** uses a folder under **Documents**, with a fallback folder next to the executable. 
 
 
 Please read the [disclaimer](#disclaimer) before using this software.
@@ -22,27 +22,31 @@ Please read the [disclaimer](#disclaimer) before using this software.
 |-------|------|
 | UI | PySide6 |
 | Download | yt-dlp |
-| Conversion | FFmpeg |
 | Storage | SQLite + filesystem |
-| Lyrics | Playwright, RapidFuzz, requests |
+| Lyrics | BeautifulSoup, RapidFuzz, curl_cffi |
 
 ## Features
 
 ### Download & queue
 
-- Paste one or many **YouTube URLs**.
+- Paste **YouTube video** or **playlist** URLs (one per line); playlists are expanded into separate queue jobs (large playlists mean many sequential downloads).
 - **Sequential queue** with progress and status in the bottom strip.
 - **Duplicate detection** by normalized artist/title (warning only; does not block saving).
 
+**MP3 audio quality:** yt-dlp format `bestaudio/best`; FFmpeg extract-audio; **192 kbps**.
+
+**WAV audio quality:** yt-dlp format `bestaudio/best`; FFmpeg extract-audio to WAV; **no** explicit sample rate, channels, or bit depth in app code (FFmpeg defaults for `.wav`).
+
 ### Library & playlists
 
-- **Search** the track list; **favorites** (star) per track.
+- **Search** the track list; **favorites** per track.
 - **Playlists**: create, rename, add/remove tracks, **All tracks** vs playlist view.
+- **View Metadata**: source URL, letras lyrics URLs, on-disk paths, format and file details.
 - **Delete** removes DB row and track folder on disk.
 
 ### Lyrics
 
-- Scrapes **letras.mus.br** via DuckDuckGo HTML search and **Playwright.**
+- Discovers **letras.mus.br** URLs by probing the canonical `/<artist-slug>/<title-slug>/` path.
 - **Original** and **PT-BR** tabs when both exist; lyrics stored as `.md` under each track’s `lyrics/` folder.
 
 ### Player
@@ -66,7 +70,7 @@ You can either run the app yourself with Python or download the .exe file from t
 
 ```bash
 git clone https://github.com/leobrqz/TrackLyrics-ytdl.git
-cd TrackLyrics-ytdl
+cd TrackLyrics-ytdlp
 ```
 
 
@@ -76,8 +80,8 @@ cd TrackLyrics-ytdl
 
 ```bash
 pip install -r requirements.txt
-playwright install
 ```
+
 
 ### 3. Start the app
 
@@ -97,8 +101,8 @@ See [LICENSE](LICENSE) (GNU General Public License v3).
 
 This software is shared for **learning and personal experimentation** (desktop UI, local media libraries, automation concepts). It is **not** a commercial product and **not** offered as a tool to bypass restrictions or policies of third-party services.
 
-This project is **not affiliated with**, endorsed by, or sponsored by YouTube, DuckDuckGo, letras.mus.br, or any other third-party site or service it may interact with.
+This project is **not affiliated with**, endorsed by, or sponsored by YouTube, letras.mus.br, or any other third-party site or service it may interact with.
 
-Lyrics retrieval uses **Playwright** with **`headless=False`** (a real browser window, not headless mode). Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
+Lyrics retrieval uses **HTTP requests** to letras.mus.br. Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
 
 The software is provided **as-is**, without warranty; **no liability** is accepted for damages, account actions, or legal consequences arising from use or misuse.

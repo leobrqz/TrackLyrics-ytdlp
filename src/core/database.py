@@ -4,7 +4,6 @@ SQLite connection management and schema initialisation.
 Called once at application startup via init_db().
 """
 import sqlite3
-from pathlib import Path
 
 from utils.paths import DB_PATH
 
@@ -46,7 +45,6 @@ def init_db() -> None:
                 file_name   TEXT    NOT NULL,
                 format_type TEXT    NOT NULL,
                 has_audio   BOOLEAN NOT NULL DEFAULT 0,
-                has_video   BOOLEAN NOT NULL DEFAULT 0,
                 FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
             );
 

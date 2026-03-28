@@ -1,27 +1,28 @@
 """
 lyrics/scraper.py
-Playwright-based lyrics scraper per docs/scrapping.md.
+HTTP-first lyrics scraper (curl_cffi browser impersonation) per docs/scrapping.md.
 
 Strategy:
-  1. Clean YouTube boilerplate from title (strip "Artist - " prefix, "(Official Video)" etc).
-  2. Search DuckDuckGo HTML (no JS, no bot detection) with site:letras.mus.br query.
-  3. Filter + score candidates by URL slug similarity — not DDG text.
-  4. Navigate to the chosen letras.mus.br page to extract lyrics.
-  5. Fetch the PT-BR translation page (<base_url>traducao.html).
+  1. Clean YouTube boilerplate from title.
+  2. Discover letras.mus.br URL by probing https://www.letras.mus.br/<artist-slug>/<title-slug>/.
+  3. Filter + score candidates by URL slug similarity (RapidFuzz).
+  4. GET letras pages and parse lyrics with BeautifulSoup (same CSS selectors).
 """
 from __future__ import annotations
 
 import asyncio
+import html as html_module
 import random
 import re
+import sys
 import urllib.parse
-from typing import Optional
+from typing import Any, Optional
 
+from bs4 import BeautifulSoup
+from curl_cffi.requests import AsyncSession
 from rapidfuzz import fuzz
-from playwright.async_api import async_playwright, Page
 
 from utils.logger import get_logger, log_structured
-from utils.paths import BROWSER_DATA_DIR
 
 log = get_logger(__name__)
 
@@ -29,7 +30,8 @@ log = get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-DDG_SEARCH = "https://html.duckduckgo.com/html/?q={query}"
+# curl_cffi impersonation targets (pinned for reproducibility; see curl_cffi docs)
+IMPERSONATE_ORDER = ("chrome120", "chrome116", "edge101")
 
 # First path segment blocklist (letras.mus.br sections that are never song pages)
 BLOCKED_FIRST_SEGMENTS = {
@@ -53,14 +55,20 @@ LYRICS_SELECTORS = [
     ".cnt-letra p",
 ]
 
-# Human-like delays (seconds)
-DELAY_AFTER_SEARCH   = (2.0, 4.5)
-DELAY_BEFORE_PTBR    = (1.5, 3.0)
+# letras traducao.html uses translation-specific blocks first
+LYRICS_SELECTORS_TRANSLATION = [
+    ".lyric-translation",
+    "article .lyric-translation",
+    ".lyric-original",
+    "article .lyric-original",
+    ".cnt-letra p",
+]
 
-# Retry config
-MAX_RETRIES   = 3
-RETRY_BACKOFF = [0, 1, 2]   # seconds before each attempt
+DELAY_AFTER_SEARCH = (2.0, 4.5)
+DELAY_BEFORE_PTBR = (1.5, 3.0)
 
+MAX_RETRIES = 3
+RETRY_BACKOFF = [0, 1, 2]
 
 # ---------------------------------------------------------------------------
 # YouTube title cleaning
@@ -68,7 +76,6 @@ RETRY_BACKOFF = [0, 1, 2]   # seconds before each attempt
 
 _ARTIST_PREFIX_RE_CACHE: dict[str, re.Pattern] = {}
 
-# Patterns to strip from the end of YouTube video titles
 _YT_NOISE = re.compile(
     r'\s*[\(\[]\s*(?:'
     r'official\s+(?:music\s+)?(?:video|audio|hd\s+video|lyric\s+video|visualizer|clip)|'
@@ -80,21 +87,33 @@ _YT_NOISE = re.compile(
     re.IGNORECASE,
 )
 
+# Strip " | music video" style channel/upload descriptors (not part of song title).
+_YT_PIPE_TRAILER = re.compile(
+    r"\s*\|\s*"
+    r"(?:music\s+video|lyric\s+video|official\s+video|official\s+audio|"
+    r"visualizer|audio\s+only|clip|shorts)\s*$",
+    re.IGNORECASE,
+)
+
+_TITLE_ARTIST_SPLIT = re.compile(r"^(.+?)\s*[-–]\s+(.+)$")
+
+
+def _clean_track_segment(segment: str) -> str:
+    """Apply YouTube suffix noise removal to the song segment only."""
+    t = segment.strip()
+    for _ in range(4):
+        cleaned = _YT_NOISE.sub("", t).strip(" -|")
+        if cleaned == t:
+            break
+        t = cleaned
+    t = t.strip()
+    return t if len(t) >= 2 else segment.strip()
+
 
 def _clean_title(raw_title: str, artist: str) -> str:
-    """
-    Strip YouTube boilerplate from a video title to get a clean song name.
-
-    Examples:
-      "Audioslave - Like a Stone (Official Video)" + "Audioslave" → "Like a Stone"
-      "Foo Fighters - Everlong (Official HD Video)" + "Foo Fighters" → "Everlong"
-      "Nirvana - Smells Like Teen Spirit [Remastered 2021]" + "Nirvana" → "Smells Like Teen Spirit"
-    """
     t = raw_title.strip()
 
-    # Strip "Artist - " prefix (most common YouTube convention)
     if artist:
-        # Build/cache regex per artist
         if artist not in _ARTIST_PREFIX_RE_CACHE:
             _ARTIST_PREFIX_RE_CACHE[artist] = re.compile(
                 rf'^{re.escape(artist.strip())}\s*[-–]\s*',
@@ -102,7 +121,6 @@ def _clean_title(raw_title: str, artist: str) -> str:
             )
         t = _ARTIST_PREFIX_RE_CACHE[artist].sub('', t)
 
-    # Strip YouTube boilerplate suffixes in parentheses/brackets (up to 4 passes)
     for _ in range(4):
         cleaned = _YT_NOISE.sub('', t).strip(' -|')
         if cleaned == t:
@@ -110,7 +128,6 @@ def _clean_title(raw_title: str, artist: str) -> str:
         t = cleaned
 
     t = t.strip()
-    # Guard: if cleaning ate the whole title, fall back to the raw title
     if not t or len(t) < 2:
         return raw_title.strip()
     return t
@@ -127,7 +144,6 @@ _ACCENT_MAP = str.maketrans(
 
 
 def _slugify(s: str) -> str:
-    """Convert a string to a letras.mus.br-style URL slug."""
     s = s.lower().translate(_ACCENT_MAP)
     s = re.sub(r"[^a-z0-9\s\-]", "", s)
     s = re.sub(r"[\s]+", "-", s.strip())
@@ -135,155 +151,185 @@ def _slugify(s: str) -> str:
     return s
 
 
-# ---------------------------------------------------------------------------
-# Top-level async entrypoint
-# ---------------------------------------------------------------------------
-
-async def scrape_lyrics(title: str, artist: str) -> dict:
+def _discovery_credits(raw_title: str, meta_artist: str) -> tuple[str, str]:
     """
-    Full scraping pipeline for one track.
-
-    Returns:
-        {original_text, ptbr_text, original_url, ptbr_url,
-         has_original, has_ptbr, failure_reason}
+    yt-dlp often sets artist to the YouTube channel, not the credited performer.
+    When the title looks like 'Performer - Song', use that for search + direct slug
+    if channel slugs do not match the opening credits.
     """
-    result: dict = {
-        "original_text": None,
-        "ptbr_text": None,
-        "original_url": None,
-        "ptbr_url": None,
-        "has_original": False,
-        "has_ptbr": False,
-        "failure_reason": None,
-    }
+    t0 = _YT_PIPE_TRAILER.sub("", raw_title.strip()).strip()
+    ma = meta_artist.strip()
+    m = _TITLE_ARTIST_SPLIT.match(t0)
+    if not m:
+        ct = _clean_title(raw_title, ma)
+        return (ma, ct) if ma else ("", ct)
 
-    title = _normalize(title)
-    artist = _normalize(artist)
+    left, right = m.group(1).strip(), m.group(2).strip()
+    track = _clean_track_segment(right)
+    if not track or len(track) < 2:
+        track = _clean_title(raw_title, ma)
 
-    if not title:
-        result["failure_reason"] = "missing_title"
-        return result
+    if not ma:
+        return (left, track)
 
-    # Step: clean yt-dlp title before building the query
-    clean_t = _clean_title(title, artist)
-    log.debug("Title cleaning: %r → %r", title, clean_t)
+    sl_m, sl_l = _slugify(ma), _slugify(left)
+    if not sl_l:
+        return (ma, _clean_title(raw_title, ma))
+    if not sl_m:
+        return (left, track)
 
-    query = f"site:letras.mus.br {clean_t} {artist}".strip()
-    encoded = urllib.parse.quote_plus(query)
-    search_url = DDG_SEARCH.format(query=encoded)
+    pr = fuzz.partial_ratio(sl_m, sl_l)
+    if pr >= 85 or sl_m == sl_l or (len(sl_m) >= 4 and sl_l.startswith(sl_m + "-")):
+        return (ma, track)
+    return (left, track)
 
-    log.debug("Scraping | query=%r | url=%s", query, search_url)
-    log_structured("lyrics_scrape_start", query=query, search_url=search_url)
 
-    async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(BROWSER_DATA_DIR),
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+# ---------------------------------------------------------------------------
+# HTTP + anti-bot helpers
+# ---------------------------------------------------------------------------
 
+def _response_byte_length(text: str) -> int:
+    return len(text.encode("utf-8", errors="replace"))
+
+
+async def _http_get(
+    session: AsyncSession,
+    url: str,
+    *,
+    label: str,
+) -> tuple[Optional[Any], str]:
+    """
+    GET url rotating impersonate profiles on 403/429 only.
+    Returns (response, impersonate_used). response is None if all profiles failed.
+    """
+    last_imp = IMPERSONATE_ORDER[-1]
+    for imp in IMPERSONATE_ORDER:
+        last_imp = imp
         try:
-            candidates = await _ddg_search(page, search_url)
-            log.debug("DDG candidates: %d", len(candidates))
+            r = await session.get(url, impersonate=imp, timeout=45)
+            text = r.text or ""
+            nbytes = _response_byte_length(text)
+            final_u = str(getattr(r, "url", "") or url)
+            log.debug(
+                "%s GET status=%s bytes=%d impersonate=%s url=%s final_url=%s",
+                label,
+                r.status_code,
+                nbytes,
+                imp,
+                url[:120],
+                final_u[:120],
+            )
 
-            if not candidates:
-                result["failure_reason"] = "ddg_no_candidates"
-                return result
+            if r.status_code == 404:
+                return r, imp
 
-            filtered = _filter_candidates(candidates)
-            log.debug("Filtered candidates: %d", len(filtered))
-            _log_top_candidates(filtered)
-
-            if not filtered:
-                result["failure_reason"] = "all_candidates_filtered"
-                return result
-
-            chosen_url = _choose_candidate(filtered, clean_t, artist)
-            log.debug("Chosen URL: %s", chosen_url)
-            result["original_url"] = chosen_url
-
-            # Navigate to song page
-            await _human_delay(*DELAY_AFTER_SEARCH)
-            original_text = await _extract_lyrics_with_retry(page, chosen_url)
-            if original_text:
-                result["original_text"] = original_text
-                result["has_original"] = True
-
-            # PT-BR translation page: <base_url>traducao.html
-            base = chosen_url.rstrip("/")
-            ptbr_url = base + "/traducao.html"
-            result["ptbr_url"] = ptbr_url
-
-            await _human_delay(*DELAY_BEFORE_PTBR)
-            ptbr_text = await _extract_lyrics_with_retry(page, ptbr_url, is_translation=True)
-            if ptbr_text:
-                result["ptbr_text"] = ptbr_text
-                result["has_ptbr"] = True
-
-        except Exception as exc:
-            log.warning("Scraper unexpected error: %s", exc)
-            result["failure_reason"] = str(exc)
-        finally:
-            await context.close()
-
-    log_structured(
-        "lyrics_scrape_end",
-        query=query,
-        chosen_url=result["original_url"],
-        has_original=result["has_original"],
-        has_ptbr=result["has_ptbr"],
-        failure_reason=result["failure_reason"],
-    )
-    return result
-
-
-# ---------------------------------------------------------------------------
-# DuckDuckGo search
-# ---------------------------------------------------------------------------
-
-async def _ddg_search(page: Page, search_url: str) -> list[dict]:
-    try:
-        await page.goto(search_url, wait_until="domcontentloaded")
-    except Exception as exc:
-        log.warning("DDG navigation failed: %s", exc)
-        return []
-
-    await _human_delay(1.5, 3.0)
-
-    raw: list[dict] = []
-    for node in await page.query_selector_all("a.result__url"):
-        href = await node.get_attribute("href") or ""
-        text = (await node.inner_text()).strip()
-
-        # Unwrap DDG redirect
-        if "duckduckgo.com/l/?uddg=" in href:
-            try:
-                href = urllib.parse.unquote(href.split("uddg=")[1].split("&")[0])
-            except IndexError:
+            if r.status_code in (403, 429):
+                log.debug("%s retry next impersonate after HTTP %s", label, r.status_code)
                 continue
 
-        if "letras.mus.br" in href and href.startswith("http"):
-            # Normalize: strip query params and fragments
-            parsed = urllib.parse.urlparse(href)
-            href = urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
-            raw.append({"url": href, "text": text})
+            if r.status_code not in (200, 202):
+                return r, imp
 
-    # Deduplicate preserving order
-    seen: set[str] = set()
-    deduped: list[dict] = []
-    for c in raw:
-        key = c["url"].lower()
-        if key not in seen:
-            seen.add(key)
-            deduped.append(c)
+            return r, imp
+        except Exception as exc:
+            log.warning("%s GET error impersonate=%s: %s", label, imp, exc)
+            continue
 
-    log.debug("DDG raw=%d deduped=%d", len(raw), len(deduped))
-    return deduped
+    return None, last_imp
 
 
 # ---------------------------------------------------------------------------
-# Candidate filtering
+# Discovery (direct letras slug)
+# ---------------------------------------------------------------------------
+
+def _normalize_letras_url(href: str) -> Optional[str]:
+    href = href.strip()
+    if not href.startswith("http"):
+        return None
+    if "letras.mus.br" not in href:
+        return None
+    parsed = urllib.parse.urlparse(href)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    if parsed.netloc not in ("www.letras.mus.br", "letras.mus.br"):
+        return None
+    return urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
+
+
+async def _direct_letras_slug_probe(
+    session: AsyncSession,
+    artist: str,
+    clean_title: str,
+) -> tuple[list[dict], dict[str, Any]]:
+    """
+    GET https://www.letras.mus.br/<artist-slug>/<title-slug>/ and accept the page
+    only when lyric markers are present (same slug rules as _choose_candidate).
+    """
+    probe_meta: dict[str, Any] = {
+        "probe_url": None,
+        "discover_http_status": None,
+        "impersonate_used": None,
+        "response_bytes": 0,
+    }
+    a = _slugify(artist)
+    t = _slugify(clean_title)
+    if len(a) < 2 or len(t) < 2:
+        return [], probe_meta
+
+    url = f"https://www.letras.mus.br/{a}/{t}/"
+    probe_meta["probe_url"] = url
+    log.debug("discover_direct probing %s", url)
+    r, imp = await _http_get(session, url, label="discover_direct")
+    probe_meta["impersonate_used"] = imp
+    log.debug("discover_direct status=%s impersonate=%s", getattr(r, "status_code", None), imp)
+
+    if r is None:
+        return [], probe_meta
+
+    text = r.text or ""
+    probe_meta["discover_http_status"] = r.status_code
+    probe_meta["response_bytes"] = _response_byte_length(text)
+
+    if r.status_code != 200:
+        return [], probe_meta
+
+    body = text.lower()
+    if "lyric-original" not in body and "cnt-letra" not in body:
+        return [], probe_meta
+
+    final_u = str(getattr(r, "url", "") or url).strip()
+    norm = _normalize_letras_url(final_u) or _normalize_letras_url(url)
+    if not norm:
+        return [], probe_meta
+    return [{"url": norm, "text": clean_title}], probe_meta
+
+
+async def _discover_candidates_direct(
+    session: AsyncSession,
+    *,
+    artist: str,
+    clean_title: str,
+) -> tuple[list[dict], dict]:
+    candidates, probe_meta = await _direct_letras_slug_probe(session, artist, clean_title)
+    meta: dict = {
+        "discover_backend": "direct_slug" if probe_meta.get("probe_url") else None,
+        "discover_http_status": probe_meta.get("discover_http_status"),
+        "response_bytes": probe_meta.get("response_bytes", 0),
+        "impersonate_used": probe_meta.get("impersonate_used"),
+        "raw_candidate_count": len(candidates),
+    }
+    log.info(
+        "Lyrics discover backend=%s status=%s raw_candidates=%d impersonate=%s",
+        meta["discover_backend"],
+        meta["discover_http_status"],
+        len(candidates),
+        meta["impersonate_used"],
+    )
+    return candidates, meta
+
+
+# ---------------------------------------------------------------------------
+# Candidate filtering + scoring
 # ---------------------------------------------------------------------------
 
 def _filter_candidates(candidates: list[dict]) -> list[dict]:
@@ -299,23 +345,18 @@ def _filter_candidates(candidates: list[dict]) -> list[dict]:
 
         segments = [s for s in parsed.path.strip("/").split("/") if s]
 
-        # Must have at least artist + song
         if len(segments) < 2:
             continue
 
-        # First segment: never a site section
         if segments[0] in BLOCKED_FIRST_SEGMENTS:
             continue
 
-        # Second segment: never an artist sub-page category
         if segments[1] in BLOCKED_SECOND_SEGMENTS:
             continue
 
-        # Non-canonical subpage suffixes
         if any(url.endswith(s) for s in BLOCKED_SUFFIXES):
             continue
 
-        # Title/URL must not contain blocked terms
         combined = (c["text"] + " " + url).lower()
         if any(bt in combined for bt in BLOCKED_TERMS):
             continue
@@ -325,45 +366,30 @@ def _filter_candidates(candidates: list[dict]) -> list[dict]:
     return filtered
 
 
-# ---------------------------------------------------------------------------
-# Candidate selection — slug-based scoring
-# ---------------------------------------------------------------------------
-
 def _choose_candidate(candidates: list[dict], clean_title: str, artist: str) -> str:
-    """
-    Score each candidate by how well its URL path segments match
-    the expected letras.mus.br slug for the song and artist.
-
-    letras URLs follow:
-      /artist-slug/song-slug/       (best case)
-      /artist-slug/numeric-id/      (legacy)
-    """
-    title_slug  = _slugify(clean_title)
+    title_slug = _slugify(clean_title)
     artist_slug = _slugify(artist)
 
     log.debug("Slug targets: title=%r artist=%r", title_slug, artist_slug)
 
-    best_url   = candidates[0]["url"]
+    best_url = candidates[0]["url"]
     best_score = -1.0
 
     for c in candidates:
-        parsed   = urllib.parse.urlparse(c["url"])
+        parsed = urllib.parse.urlparse(c["url"])
         segments = [s for s in parsed.path.strip("/").split("/") if s]
         if len(segments) < 2:
             continue
 
-        seg_artist = segments[0]  # e.g. "audioslave"
-        seg_song   = segments[1]  # e.g. "like-a-stone" or "69438"
+        seg_artist = segments[0]
+        seg_song = segments[1]
 
         artist_score = fuzz.ratio(artist_slug, seg_artist) / 100.0
 
         if seg_song.isdigit():
-            # Numeric IDs: we can't match by title, score purely on artist
-            # and give a base bonus for being a concrete song ID
             score = artist_score * 0.5 + 0.2
         else:
             title_score = fuzz.ratio(title_slug, seg_song) / 100.0
-            # Weight: song slug match is the primary signal (60%), artist secondary (40%)
             score = title_score * 0.6 + artist_score * 0.4
 
         log.debug(
@@ -373,70 +399,100 @@ def _choose_candidate(candidates: list[dict], clean_title: str, artist: str) -> 
 
         if score > best_score:
             best_score = score
-            best_url   = c["url"]
+            best_url = c["url"]
 
     log.debug("Winner: score=%.2f  url=%s", best_score, best_url)
     return best_url
 
 
 # ---------------------------------------------------------------------------
-# Lyrics extraction
+# Lyrics extraction (HTML)
 # ---------------------------------------------------------------------------
 
-async def _extract_lyrics_with_retry(
-    page: Page,
+def _try_selectors_bs(
+    soup: BeautifulSoup,
+    selectors: Optional[list[str]] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    sels = selectors if selectors is not None else LYRICS_SELECTORS
+    for sel in sels:
+        nodes = soup.select(sel)
+        if not nodes:
+            continue
+        fragments = []
+        for node in nodes:
+            txt = node.get_text("\n", strip=True)
+            if txt:
+                fragments.append(txt)
+        if fragments:
+            text = "\n\n".join(fragments)
+            text = html_module.unescape(text)
+            return text, sel
+    return None, None
+
+
+async def _extract_lyrics_http_with_retry(
+    session: AsyncSession,
     url: str,
+    *,
     is_translation: bool = False,
-) -> Optional[str]:
+) -> tuple[Optional[str], dict]:
+    meta: dict = {
+        "http_status": None,
+        "selector": None,
+        "chars": 0,
+        "impersonate_used": None,
+    }
+
     for attempt in range(MAX_RETRIES):
         wait = RETRY_BACKOFF[attempt]
         if wait:
             await asyncio.sleep(wait)
 
         try:
-            response = await page.goto(url, wait_until="domcontentloaded")
-            status = response.status if response else 0
+            r, imp = await _http_get(session, url, label="lyrics")
+            meta["impersonate_used"] = imp
 
-            if status == 404:
-                log.debug("404 on %s — unavailable", url)
-                return None
-
-            if status in (403, 429):
-                log.warning("HTTP %d on %s — retrying (attempt %d)", status, url, attempt + 1)
+            if r is None:
+                log.warning("Lyrics GET exhausted impersonations %s attempt=%d", url, attempt + 1)
                 continue
 
-            await asyncio.sleep(1.5)  # let JS hydrate
-            text = await _try_selectors(page)
+            meta["http_status"] = r.status_code
+
+            if r.status_code == 404:
+                log.debug("404 on %s — unavailable", url)
+                return None, meta
+
+            if r.status_code in (403, 429):
+                log.warning("HTTP %d on %s — retrying (attempt %d)", r.status_code, url, attempt + 1)
+                continue
+
+            if r.status_code not in (200, 202):
+                log.debug("HTTP %s on %s", r.status_code, url)
+                if not is_translation:
+                    log_structured("lyrics_selector_miss", url=url)
+                return None, meta
+
+            await asyncio.sleep(0.5)
+            soup = BeautifulSoup(r.text or "", "html.parser")
+            sels = LYRICS_SELECTORS_TRANSLATION if is_translation else LYRICS_SELECTORS
+            text, sel = _try_selectors_bs(soup, sels)
 
             if text:
-                log.debug("Extracted %d chars from %s", len(text), url)
-                return text
+                meta["selector"] = sel
+                meta["chars"] = len(text)
+                log.debug("Extracted %d chars from %s selector=%s", len(text), url, sel)
+                return text, meta
 
             log.debug("No selector matched on %s", url)
             if not is_translation:
                 log_structured("lyrics_selector_miss", url=url)
-            return None
+            return None, meta
 
         except Exception as exc:
             log.warning("Error fetching %s (attempt %d): %s", url, attempt + 1, exc)
 
     log.warning("Exhausted retries for %s", url)
-    return None
-
-
-async def _try_selectors(page: Page) -> Optional[str]:
-    for sel in LYRICS_SELECTORS:
-        nodes = await page.query_selector_all(sel)
-        if not nodes:
-            continue
-        fragments = []
-        for node in nodes:
-            txt = (await node.inner_text()).strip()
-            if txt:
-                fragments.append(txt)
-        if fragments:
-            return "\n\n".join(fragments)
-    return None
+    return None, meta
 
 
 # ---------------------------------------------------------------------------
@@ -459,9 +515,188 @@ async def _human_delay(lo: float, hi: float) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sync wrapper for worker thread
+# Top-level async entrypoint
 # ---------------------------------------------------------------------------
+
+async def scrape_lyrics(title: str, artist: str) -> dict:
+    result: dict = {
+        "original_text": None,
+        "ptbr_text": None,
+        "original_url": None,
+        "ptbr_url": None,
+        "has_original": False,
+        "has_ptbr": False,
+        "failure_reason": None,
+    }
+
+    scrape_meta: dict = {
+        "discover_backend": None,
+        "discover_http_status": None,
+        "response_bytes": 0,
+        "impersonate_used": None,
+        "raw_candidate_count": 0,
+        "filtered_candidate_count": 0,
+        "lyrics_http_status": None,
+        "lyrics_selector": None,
+        "lyrics_chars": 0,
+        "lyrics_ptbr_http_status": None,
+        "lyrics_ptbr_selector": None,
+        "lyrics_ptbr_chars": 0,
+        "failure_stage": None,
+    }
+
+    title = _normalize(title)
+    artist = _normalize(artist)
+
+    if not title:
+        result["failure_reason"] = "missing_title"
+        scrape_meta["failure_stage"] = "validate"
+        log_structured(
+            "lyrics_scrape_end",
+            query="",
+            search_url="",
+            chosen_url=None,
+            has_original=False,
+            has_ptbr=False,
+            failure_reason="missing_title",
+            **scrape_meta,
+        )
+        return result
+
+    discover_a, clean_t = _discovery_credits(title, artist)
+    log.debug(
+        "Discovery credits: performer=%r track=%r (metadata_artist=%r)",
+        discover_a,
+        clean_t,
+        artist,
+    )
+
+    a_slug, t_slug = _slugify(discover_a), _slugify(clean_t)
+    probe_url = (
+        f"https://www.letras.mus.br/{a_slug}/{t_slug}/"
+        if len(a_slug) >= 2 and len(t_slug) >= 2
+        else ""
+    )
+    query = f"{clean_t} | {discover_a}".strip()
+
+    log.debug("Scraping | query=%r | probe_url=%s", query, probe_url or "(none)")
+    log_structured("lyrics_scrape_start", query=query, search_url=probe_url)
+
+    try:
+        async with AsyncSession() as session:
+            candidates, dmeta = await _discover_candidates_direct(
+                session,
+                artist=discover_a,
+                clean_title=clean_t,
+            )
+            scrape_meta.update(
+                discover_backend=dmeta.get("discover_backend"),
+                discover_http_status=dmeta.get("discover_http_status"),
+                response_bytes=dmeta.get("response_bytes", 0),
+                impersonate_used=dmeta.get("impersonate_used"),
+                raw_candidate_count=dmeta.get("raw_candidate_count", 0),
+            )
+
+            if not candidates:
+                result["failure_reason"] = "discover_no_candidates"
+                scrape_meta["failure_stage"] = "discover"
+                log.info("Lyrics scrape failed: discover_no_candidates query=%r", query)
+                log_structured(
+                    "lyrics_scrape_end",
+                    query=query,
+                    search_url=probe_url,
+                    chosen_url=None,
+                    has_original=False,
+                    has_ptbr=False,
+                    failure_reason=result["failure_reason"],
+                    **scrape_meta,
+                )
+                return result
+
+            filtered = _filter_candidates(candidates)
+            scrape_meta["filtered_candidate_count"] = len(filtered)
+            log.debug("Filtered candidates: %d", len(filtered))
+            _log_top_candidates(filtered)
+
+            if not filtered:
+                result["failure_reason"] = "all_candidates_filtered"
+                scrape_meta["failure_stage"] = "filter"
+                log.info("Lyrics scrape failed: all_candidates_filtered query=%r", query)
+                log_structured(
+                    "lyrics_scrape_end",
+                    query=query,
+                    search_url=probe_url,
+                    chosen_url=None,
+                    has_original=False,
+                    has_ptbr=False,
+                    failure_reason=result["failure_reason"],
+                    **scrape_meta,
+                )
+                return result
+
+            chosen_url = _choose_candidate(filtered, clean_t, discover_a)
+            result["original_url"] = chosen_url
+
+            await _human_delay(*DELAY_AFTER_SEARCH)
+            orig_text, om = await _extract_lyrics_http_with_retry(session, chosen_url)
+            scrape_meta["lyrics_http_status"] = om.get("http_status")
+            scrape_meta["lyrics_selector"] = om.get("selector")
+            scrape_meta["lyrics_chars"] = om.get("chars", 0)
+            if orig_text:
+                result["original_text"] = orig_text
+                result["has_original"] = True
+
+            base = chosen_url.rstrip("/")
+            ptbr_url = base + "/traducao.html"
+            result["ptbr_url"] = ptbr_url
+
+            await _human_delay(*DELAY_BEFORE_PTBR)
+            ptbr_text, pm = await _extract_lyrics_http_with_retry(
+                session, ptbr_url, is_translation=True
+            )
+            scrape_meta["lyrics_ptbr_http_status"] = pm.get("http_status")
+            scrape_meta["lyrics_ptbr_selector"] = pm.get("selector")
+            scrape_meta["lyrics_ptbr_chars"] = pm.get("chars", 0)
+            if ptbr_text:
+                result["ptbr_text"] = ptbr_text
+                result["has_ptbr"] = True
+
+    except Exception as exc:
+        log.warning("Scraper unexpected error: %s", exc)
+        result["failure_reason"] = str(exc)
+        scrape_meta["failure_stage"] = "exception"
+
+    log_structured(
+        "lyrics_scrape_end",
+        query=query,
+        search_url=probe_url,
+        chosen_url=result["original_url"],
+        has_original=result["has_original"],
+        has_ptbr=result["has_ptbr"],
+        failure_reason=result["failure_reason"],
+        **scrape_meta,
+    )
+
+    if result["failure_reason"]:
+        log.info(
+            "Lyrics scrape done failure=%s discover=%s filtered=%d",
+            result["failure_reason"],
+            scrape_meta.get("discover_backend"),
+            scrape_meta.get("filtered_candidate_count", 0),
+        )
+    else:
+        log.info(
+            "Lyrics scrape OK discover=%s original_chars=%d ptbr_chars=%d",
+            scrape_meta.get("discover_backend"),
+            scrape_meta.get("lyrics_chars", 0),
+            scrape_meta.get("lyrics_ptbr_chars", 0),
+        )
+
+    return result
+
 
 def scrape_lyrics_sync(title: str, artist: str) -> dict:
     """Synchronous wrapper — runs the async scraper in a fresh event loop."""
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(scrape_lyrics(title, artist))

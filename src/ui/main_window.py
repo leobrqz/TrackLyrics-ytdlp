@@ -23,11 +23,13 @@ import core.library as library
 import core.playlist_manager as pm
 from core.settings import get_setting, set_setting
 from download.queue import DownloadJob, DownloadQueue
+from download.url_expand import expand_youtube_inputs
 from player.playback_manager import PlaybackManager
 from ui.dialogs.add_to_playlist_dialog import AddToPlaylistDialog
 from ui.dialogs.download_dialog import DownloadDialog
 from ui.dialogs.duplicate_dialog import DuplicateDialog
 from ui.dialogs.error_dialog import ErrorDialog
+from ui.dialogs.settings_dialog import SettingsDialog
 from ui.widgets.library_widget import LibraryWidget
 from ui.widgets.lyrics_widget import LyricsWidget
 from ui.widgets.player_widget import PlayerWidget
@@ -98,6 +100,13 @@ class MainWindow(QMainWindow):
         spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         tb.addWidget(spacer)
 
+        self._settings_btn = QPushButton("Settings")
+        self._settings_btn.setObjectName("toolbarTextBtn")
+        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_btn.setToolTip("Download queue and lyrics options")
+        self._settings_btn.clicked.connect(self._open_settings)
+        tb.addWidget(self._settings_btn)
+
         self._theme_btn = QPushButton()
         self._theme_btn.setObjectName("toolbarTextBtn")
         self._theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -126,11 +135,10 @@ class MainWindow(QMainWindow):
         self._h_splitter.addWidget(self._playlist_widget)
         self._h_splitter.addWidget(self._library_widget)
         self._h_splitter.addWidget(self._lyrics_widget)
-        self._h_splitter.setStretchFactor(0, 0)
+        self._h_splitter.setStretchFactor(0, 1)
         self._h_splitter.setStretchFactor(1, 3)
         self._h_splitter.setStretchFactor(2, 2)
-        # Match first pane width to the fixed playlist column so extra space goes to library/lyrics.
-        self._h_splitter.setSizes([240, 520, 380])
+        self._h_splitter.setSizes([148, 612, 380])
 
         self._player_widget = PlayerWidget()
         self._progress_widget = ProgressWidget(queue=self._queue)
@@ -221,7 +229,30 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             urls = dlg.get_urls()
             fmt = dlg.get_format()
-            for url in urls:
+            expanded, failed = expand_youtube_inputs(urls)
+            if failed and not expanded:
+                lines = "\n".join(f"• {u}: {err}" for u, err in failed[:6])
+                if len(failed) > 6:
+                    lines += f"\n… and {len(failed) - 6} more"
+                ErrorDialog(
+                    "Add Downloads",
+                    lines,
+                    "Check URLs and network access.",
+                    parent=self,
+                ).exec()
+                return
+            if failed:
+                lines = "\n".join(f"• {u}: {err}" for u, err in failed[:8])
+                if len(failed) > 8:
+                    lines += f"\n… and {len(failed) - 8} more"
+                ErrorDialog(
+                    "Add Downloads",
+                    f"Some inputs could not be resolved:\n{lines}",
+                    "Remaining items were added to the queue.",
+                    level="warning",
+                    parent=self,
+                ).exec()
+            for url in expanded:
                 self._queue.add(DownloadJob(url=url, format_type=fmt))
             self._progress_widget.on_job_added()
 
@@ -248,6 +279,8 @@ class MainWindow(QMainWindow):
             track.media_files[0].format_type if track.media_files else "?"
         )
         self._player_widget.set_playing(True)
+        self._library_widget.select_track_by_id(track.id)
+        self._lyrics_widget.load_track(track)
 
     def _toggle_play(self) -> None:
         if self._playback.is_playing():
@@ -302,6 +335,9 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     # ── Theme ────────────────────────────────────────────────────────────────
+
+    def _open_settings(self) -> None:
+        SettingsDialog(self).exec()
 
     def _toggle_theme(self) -> None:
         current = get_setting("theme", "dark")

@@ -19,11 +19,17 @@ class DownloadError(Exception):
     pass
 
 
+def _sanitize_stem_prefix(prefix: str) -> str:
+    out = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in prefix)
+    return out[:48] if out else ""
+
+
 def download(
     url: str,
     output_dir: Path,
     format_type: str,
     progress_callback: Optional[Callable[[int], None]] = None,
+    file_stem_prefix: Optional[str] = None,
 ) -> dict:
     """
     Download media from a YouTube URL using yt-dlp.
@@ -33,6 +39,7 @@ def download(
         output_dir: Directory to save the downloaded file.
         format_type: Requested format — 'mp3' or 'wav' (audio-only).
         progress_callback: Optional callable(percent: int) for progress updates.
+        file_stem_prefix: Optional prefix for output basename (parallel downloads).
 
     Returns:
         dict with keys: title, artist, duration, source_url, file_path (Path)
@@ -42,8 +49,11 @@ def download(
     if format_type not in ("mp3", "wav"):
         raise DownloadError(f"Unsupported format: {format_type!r} (use mp3 or wav)")
 
-    # yt-dlp output template — uses %(ext)s so postprocessors can change extension
-    outtmpl = str(output_dir / "%(title)s.%(ext)s")
+    safe_prefix = _sanitize_stem_prefix(file_stem_prefix) if file_stem_prefix else ""
+    if safe_prefix:
+        outtmpl = str(output_dir / f"{safe_prefix}_%(title)s.%(ext)s")
+    else:
+        outtmpl = str(output_dir / "%(title)s.%(ext)s")
 
     postprocessors = []
     if format_type == "mp3":
@@ -91,7 +101,7 @@ def download(
         raise DownloadError(f"yt-dlp returned no info for URL: {url}")
 
     # Resolve the actual downloaded file
-    file_path = _resolve_file(output_dir, info, format_type)
+    file_path = _resolve_file(output_dir, info, format_type, stem_prefix=safe_prefix or None)
 
     title = info.get("title") or info.get("fulltitle") or "Unknown Title"
     artist = (
@@ -113,7 +123,12 @@ def download(
     }
 
 
-def _resolve_file(output_dir: Path, info: dict, format_type: str) -> Path:
+def _resolve_file(
+    output_dir: Path,
+    info: dict,
+    format_type: str,
+    stem_prefix: Optional[str] = None,
+) -> Path:
     """Find the actual output file after yt-dlp (postprocessors may change extension)."""
     # yt-dlp stores the final filename in info["requested_downloads"] when available
     rds = info.get("requested_downloads")
@@ -124,7 +139,8 @@ def _resolve_file(output_dir: Path, info: dict, format_type: str) -> Path:
 
     # Fallback: scan output_dir for the newest file matching the expected extension
     ext = format_type  # 'mp3' | 'wav'
-    candidates = sorted(output_dir.glob(f"*.{ext}"), key=os.path.getmtime, reverse=True)
+    pattern = f"{stem_prefix}_*.{ext}" if stem_prefix else f"*.{ext}"
+    candidates = sorted(output_dir.glob(pattern), key=os.path.getmtime, reverse=True)
     if candidates:
         return candidates[0]
 

@@ -34,7 +34,6 @@ def _row_to_media_file(row) -> MediaFile:
         file_name=row["file_name"],
         format_type=row["format_type"],
         has_audio=bool(row["has_audio"]),
-        has_video=bool(row["has_video"]),
     )
 
 
@@ -60,7 +59,7 @@ def insert_track(
     duration: int,
     folder_name: str,
     source_url: str,
-    media_files: list[dict],   # list of {file_name, format_type, has_audio, has_video}
+    media_files: list[dict],   # list of {file_name, format_type, has_audio}
 ) -> int:
     """
     Insert a track + its media files + an empty lyrics row in one transaction.
@@ -81,10 +80,15 @@ def insert_track(
             for mf in media_files:
                 conn.execute(
                     """
-                    INSERT INTO media_files (track_id, file_name, format_type, has_audio, has_video)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO media_files (track_id, file_name, format_type, has_audio)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (track_id, mf["file_name"], mf["format_type"], mf["has_audio"], mf["has_video"]),
+                    (
+                        track_id,
+                        mf["file_name"],
+                        mf["format_type"],
+                        int(mf["has_audio"]),
+                    ),
                 )
 
             # Create a blank lyrics row — will be updated after scraping
@@ -185,7 +189,6 @@ def add_media_file(
     file_name: str,
     format_type: str,
     has_audio: bool,
-    has_video: bool,
 ) -> None:
     """Add a converted format file for an existing track."""
     conn = get_connection()
@@ -193,10 +196,10 @@ def add_media_file(
         with conn:
             conn.execute(
                 """
-                INSERT INTO media_files (track_id, file_name, format_type, has_audio, has_video)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO media_files (track_id, file_name, format_type, has_audio)
+                VALUES (?, ?, ?, ?)
                 """,
-                (track_id, file_name, format_type, int(has_audio), int(has_video)),
+                (track_id, file_name, format_type, int(has_audio)),
             )
     finally:
         conn.close()
@@ -232,3 +235,13 @@ def get_all_tracks_full() -> list[Track]:
         track.media_files = get_media_files(track.id)
         track.lyrics = get_lyrics(track.id)
     return tracks
+
+
+def get_track_full(track_id: int) -> Optional[Track]:
+    """Single track with media_files and lyrics loaded."""
+    track = get_track_by_id(track_id)
+    if track is None:
+        return None
+    track.media_files = get_media_files(track_id)
+    track.lyrics = get_lyrics(track_id)
+    return track

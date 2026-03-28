@@ -15,13 +15,19 @@ Pipeline per job:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from PySide6.QtCore import QThread, Signal
 
 import core.library as library
+from core.settings import (
+    get_download_parallel_workers,
+    get_download_queue_mode,
+    get_lyrics_parallel_with_download,
+)
 from download.downloader import download, DownloadError
 from download.queue import DownloadJob, DownloadQueue
 from lyrics.scraper import scrape_lyrics_sync
@@ -35,66 +41,162 @@ AUDIO_FORMATS = {"mp3", "wav"}
 
 
 class DownloadWorker(QThread):
-    # ---- Signals emitted to the UI ----------------------------------------
-    progress_updated  = Signal(str, int)      # job_id, percent 0-100
-    status_changed    = Signal(str, str)      # job_id, human-readable status
-    track_saved       = Signal(int)           # track_id
-    lyrics_ready      = Signal(int)           # track_id
-    duplicate_detected = Signal(str, str)     # artist, title
-    error_occurred    = Signal(str, str, str) # operation, reason, hint
+    progress_updated = Signal(str, int)
+    status_changed = Signal(str, str)
+    track_saved = Signal(int)
+    lyrics_ready = Signal(int)
+    duplicate_detected = Signal(str, str)
+    error_occurred = Signal(str, str, str)
 
     def __init__(self, queue: DownloadQueue, parent=None) -> None:
         super().__init__(parent)
         self._queue = queue
         self._running = True
 
-    # ---- Thread entry point ------------------------------------------------
-
     def run(self) -> None:
         log.info("DownloadWorker started")
         while self._running:
-            job = self._queue.next_pending()
-            if job is None:
-                self.msleep(500)  # poll every 500 ms
-                continue
-            self._process_job(job)
+            if get_download_queue_mode() == "fifo":
+                job = self._queue.take_next_pending()
+                if job is None:
+                    self.msleep(500)
+                    continue
+                self._pipeline_fifo_job(job)
+            else:
+                n = get_download_parallel_workers()
+                jobs = self._queue.take_up_to_n_pending(n)
+                if not jobs:
+                    self.msleep(500)
+                    continue
+                self._pipeline_parallel_batch(jobs, n)
 
     def stop(self) -> None:
         self._running = False
 
-    # ---- Job pipeline -------------------------------------------------------
+    # ── FIFO: one job end-to-end ────────────────────────────────────────────
 
-    def _process_job(self, job: DownloadJob) -> None:
-        self._queue.mark_running(job.job_id)
-        self._emit_status(job, "Downloading…")
-        log.info("Processing job %s  url=%s  fmt=%s", job.job_id, job.url, job.format_type)
-
-        # ── Step 1: Download ─────────────────────────────────────────────────
+    def _pipeline_fifo_job(self, job: DownloadJob) -> None:
         try:
-            meta = download(
-                url=job.url,
-                output_dir=TEMP_DIR,
-                format_type=job.format_type,
-                progress_callback=lambda pct: self.progress_updated.emit(job.job_id, pct),
-            )
+            meta = self._download_job_media(job)
         except DownloadError as exc:
-            self._fail(job, "Download Error", str(exc), "Check the URL and your internet connection.")
+            self._fail(
+                job,
+                "Download Error",
+                str(exc),
+                "Check the URL and your internet connection.",
+            )
+            return
+        ctx = self._library_phase(job, meta)
+        if ctx is None:
+            return
+        self._emit_status(job, "Scraping lyrics…")
+        scrape_result = self._safe_scrape(ctx["title"], ctx["artist"])
+        self._apply_lyrics_files_and_db(job, ctx, scrape_result)
+        self._finish_job_success(job, ctx["track_id"])
+
+    # ── Parallel: N downloads, then library (serial), then lyrics ───────────
+
+    def _pipeline_parallel_batch(self, jobs: list[DownloadJob], max_workers: int) -> None:
+        workers = min(max_workers, len(jobs))
+        for j in jobs:
+            self._emit_status(j, "Downloading…")
+
+        metas: list[tuple[DownloadJob, Optional[dict]]] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(self._download_job_media, job) for job in jobs]
+            for job, fut in zip(jobs, futs):
+                try:
+                    metas.append((job, fut.result()))
+                except DownloadError as exc:
+                    self._fail(
+                        job,
+                        "Download Error",
+                        str(exc),
+                        "Check the URL and your internet connection.",
+                    )
+                    metas.append((job, None))
+                except Exception as exc:
+                    self._fail(
+                        job,
+                        "Download Error",
+                        str(exc),
+                        "Check the URL and your internet connection.",
+                    )
+                    metas.append((job, None))
+
+        contexts: list[tuple[DownloadJob, dict[str, Any]]] = []
+        for job, meta in metas:
+            if meta is None:
+                continue
+            ctx = self._library_phase(job, meta)
+            if ctx is not None:
+                contexts.append((job, ctx))
+
+        if not contexts:
             return
 
+        lyrics_parallel = (
+            get_lyrics_parallel_with_download() and len(contexts) > 1
+        )
+        if lyrics_parallel:
+            n_ly = min(get_download_parallel_workers(), len(contexts))
+            for job, _ctx in contexts:
+                self._emit_status(job, "Scraping lyrics…")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=n_ly) as ex:
+                futs = [
+                    (
+                        job,
+                        ctx,
+                        ex.submit(scrape_lyrics_sync, ctx["title"], ctx["artist"]),
+                    )
+                    for job, ctx in contexts
+                ]
+                for job, ctx, fut in futs:
+                    try:
+                        raw = fut.result()
+                    except Exception as exc:
+                        log.warning("Lyrics pool scrape raised: %s", exc)
+                        self.error_occurred.emit(
+                            "Lyrics Error",
+                            str(exc),
+                            "The track was saved without lyrics.",
+                        )
+                        raw = {"has_original": False, "has_ptbr": False}
+                    scrape_result = self._post_process_scrape_result(
+                        raw, ctx["title"]
+                    )
+                    self._apply_lyrics_files_and_db(job, ctx, scrape_result)
+                    self._finish_job_success(job, ctx["track_id"])
+        else:
+            for job, ctx in contexts:
+                self._emit_status(job, "Scraping lyrics…")
+                scrape_result = self._safe_scrape(ctx["title"], ctx["artist"])
+                self._apply_lyrics_files_and_db(job, ctx, scrape_result)
+                self._finish_job_success(job, ctx["track_id"])
+
+    def _download_job_media(self, job: DownloadJob) -> dict:
+        prefix = job.job_id.replace("-", "")
+        return download(
+            url=job.url,
+            output_dir=TEMP_DIR,
+            format_type=job.format_type,
+            progress_callback=lambda pct: self.progress_updated.emit(job.job_id, pct),
+            file_stem_prefix=prefix,
+        )
+
+    def _library_phase(
+        self, job: DownloadJob, meta: dict
+    ) -> Optional[dict[str, Any]]:
         title: str = meta["title"]
         artist: str = meta["artist"]
         duration: int = meta["duration"]
-        # YouTube URL used for this download (same as user-submitted job URL)
         source_url: str = meta.get("source_url") or job.url
         downloaded_file: Path = meta["file_path"]
 
-        # ── Step 2: Duplicate detection (warn only) ──────────────────────────
         if library.track_exists(artist, title):
             log.warning("Duplicate detected: %s — %s", artist, title)
             self.duplicate_detected.emit(artist, title)
 
-        # ── Step 3: Reserve a track_id to build folder name ──────────────────
-        # Insert the track first (with dummy folder_name), then rename
         self._emit_status(job, "Saving to library…")
         try:
             placeholder = f"__tmp_{job.job_id}"
@@ -104,19 +206,19 @@ class DownloadWorker(QThread):
                 duration=duration,
                 folder_name=placeholder,
                 source_url=source_url,
-                media_files=[],   # filled in after folder is ready
+                media_files=[],
             )
         except Exception as exc:
             self._fail(job, "Storage Error", str(exc), "Check disk space and permissions.")
-            return
+            return None
 
         folder_name = build_track_name(artist, title, track_id)
         track_folder = TRACKS_DIR / folder_name
         track_folder.mkdir(parents=True, exist_ok=True)
 
-        # Update folder_name in DB now that we have the real ID
         try:
             from core.database import get_connection
+
             conn = get_connection()
             with conn:
                 conn.execute(
@@ -126,40 +228,47 @@ class DownloadWorker(QThread):
             conn.close()
         except Exception as exc:
             self._fail(job, "Storage Error", str(exc), "Could not update track folder name.")
-            return
+            return None
 
-        # ── Step 4: Move downloaded file into track folder ───────────────────
         dest_file = track_folder / f"{folder_name}.{job.format_type}"
         try:
             shutil.move(str(downloaded_file), str(dest_file))
         except OSError as exc:
             self._fail(job, "Storage Error", str(exc), "Could not move file to library folder.")
-            return
+            return None
 
         has_audio = job.format_type in AUDIO_FORMATS
-
-        # ── Step 5: Register primary media file in DB ────────────────────────
         try:
             library.add_media_file(
                 track_id=track_id,
                 file_name=dest_file.name,
                 format_type=job.format_type,
                 has_audio=has_audio,
-                has_video=False,
             )
         except Exception as exc:
             self._fail(job, "Storage Error", str(exc), "Could not register media file in library.")
-            return
+            return None
 
-        # ── Step 6: Emit track_saved so UI can refresh immediately ───────────
         self.track_saved.emit(track_id)
-        self._emit_status(job, "Scraping lyrics…")
+        return {
+            "track_id": track_id,
+            "title": title,
+            "artist": artist,
+            "track_folder": track_folder,
+            "folder_name": folder_name,
+        }
 
-        # ── Step 7: Scrape lyrics ────────────────────────────────────────────
+    def _apply_lyrics_files_and_db(
+        self,
+        job: DownloadJob,
+        ctx: dict[str, Any],
+        scrape_result: dict,
+    ) -> None:
+        track_id: int = ctx["track_id"]
+        track_folder: Path = ctx["track_folder"]
         lyrics_dir = track_folder / "lyrics"
         lyrics_dir.mkdir(exist_ok=True)
 
-        scrape_result = self._safe_scrape(title, artist)
         original_path: Optional[str] = None
         ptbr_path: Optional[str] = None
 
@@ -173,7 +282,6 @@ class DownloadWorker(QThread):
             ptbr_file.write_text(scrape_result["ptbr_text"], encoding="utf-8")
             ptbr_path = str(ptbr_file.relative_to(track_folder))
 
-        # ── Step 8: Persist lyrics metadata ─────────────────────────────────
         try:
             library.update_lyrics(
                 track_id=track_id,
@@ -189,28 +297,29 @@ class DownloadWorker(QThread):
 
         self.lyrics_ready.emit(track_id)
 
-        # ── Step 9: Done ─────────────────────────────────────────────────────
+    def _finish_job_success(self, job: DownloadJob, track_id: int) -> None:
         self._queue.mark_done(job.job_id)
         self._emit_status(job, "Done")
         log.info("Job %s complete. track_id=%d", job.job_id, track_id)
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    def _post_process_scrape_result(self, result: dict, title: str) -> dict:
+        if result.get("failure_reason"):
+            log.warning(
+                "Lyrics scrape warning for '%s' — %s",
+                title,
+                result["failure_reason"],
+            )
+            self.error_occurred.emit(
+                "Lyrics Search",
+                result["failure_reason"],
+                "The track was saved without lyrics.",
+            )
+        return result
 
     def _safe_scrape(self, title: str, artist: str) -> dict:
-        """Run scraper and absorb any exception — lyrics are always non-fatal."""
         try:
             result = scrape_lyrics_sync(title, artist)
-            if result.get("failure_reason"):
-                log.warning(
-                    "Lyrics scrape warning for '%s' — %s",
-                    title, result["failure_reason"],
-                )
-                self.error_occurred.emit(
-                    "Lyrics Search",
-                    result["failure_reason"],
-                    "The track was saved without lyrics.",
-                )
-            return result
+            return self._post_process_scrape_result(result, title)
         except Exception as exc:
             log.warning("Scraper raised unexpectedly: %s", exc)
             self.error_occurred.emit(
