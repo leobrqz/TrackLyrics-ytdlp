@@ -29,8 +29,11 @@ class PlaylistWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("playlistWidget")
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        self.setFixedWidth(240)
+        self.setMinimumWidth(120)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)

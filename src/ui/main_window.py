@@ -135,11 +135,10 @@ class MainWindow(QMainWindow):
         self._h_splitter.addWidget(self._playlist_widget)
         self._h_splitter.addWidget(self._library_widget)
         self._h_splitter.addWidget(self._lyrics_widget)
-        self._h_splitter.setStretchFactor(0, 0)
+        self._h_splitter.setStretchFactor(0, 1)
         self._h_splitter.setStretchFactor(1, 3)
         self._h_splitter.setStretchFactor(2, 2)
-        # Match first pane width to the fixed playlist column so extra space goes to library/lyrics.
-        self._h_splitter.setSizes([240, 520, 380])
+        self._h_splitter.setSizes([148, 612, 380])
 
         self._player_widget = PlayerWidget()
         self._progress_widget = ProgressWidget(queue=self._queue)

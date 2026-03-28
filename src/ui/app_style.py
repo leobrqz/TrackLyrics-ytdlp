@@ -123,13 +123,13 @@ QToolBar#mainToolbar QPushButton#toolbarTextBtn:hover {{
     background-color: {p["menu_hover"]};
     color: {p["text_primary"]};
 }}
-QAbstractItemView {{
+QListWidget {{
     background-color: {p["bg_card"]};
     border: 1px solid {p["border"]};
     border-radius: 8px;
     color: {p["text_primary"]};
-    padding: 4px;
     outline: none;
+    padding: 4px;
     selection-background-color: {p["selection_bg"]};
     selection-color: {p["selection_fg"]};
 }}
@@ -143,6 +143,48 @@ QListWidget::item:hover {{
 QListWidget::item:selected {{
     background-color: {p["selection_bg"]};
     color: {p["selection_fg"]};
+}}
+QFrame#libraryTableFrame {{
+    background-color: {p["bg_card"]};
+    border: 1px solid {p["border"]};
+    border-radius: 8px;
+}}
+QTableWidget#libraryTable {{
+    background-color: {p["bg_card"]};
+    alternate-background-color: {p["scrollbar_track"]};
+    border: none;
+    gridline-color: {p["border"]};
+    color: {p["text_primary"]};
+    outline: none;
+}}
+QTableWidget#libraryTable::item {{
+    padding: 4px 8px;
+}}
+QTableWidget#libraryTable::item:selected {{
+    background-color: {p["selection_bg"]};
+    color: {p["selection_fg"]};
+}}
+QTableWidget#libraryTable::item:hover {{
+    background-color: {p["hover_list"]};
+}}
+QTableWidget#libraryTable::item:selected:hover {{
+    background-color: {p["selection_bg"]};
+    color: {p["selection_fg"]};
+}}
+QTableWidget#libraryTable QHeaderView {{
+    background-color: {p["bg_card"]};
+}}
+QTableWidget#libraryTable QHeaderView::section {{
+    background-color: {p["bg_card"]};
+    color: {p["text_secondary"]};
+    padding: 4px 8px;
+    border: none;
+    border-right: 1px solid {p["border"]};
+    border-bottom: 1px solid {p["border"]};
+    font-weight: 600;
+}}
+QTableWidget#libraryTable QHeaderView::section:last {{
+    border-right: none;
 }}
 QLineEdit {{
     background-color: {p["bg_card"]};
