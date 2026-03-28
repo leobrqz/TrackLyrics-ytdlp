@@ -21,10 +21,9 @@ Please read the [disclaimer](#disclaimer) before using this software.
 | Layer | Tech |
 |-------|------|
 | UI | PySide6 |
-| Download | yt-dlp |
-| Conversion | FFmpeg |
+| Download | yt-dlp (+ FFmpeg for extract-audio) |
 | Storage | SQLite + filesystem |
-| Lyrics | curl_cffi (browser TLS impersonation), BeautifulSoup, RapidFuzz |
+| Lyrics | BeautifulSoup, RapidFuzz, curl_cffi |
 
 ## Features
 
@@ -33,6 +32,10 @@ Please read the [disclaimer](#disclaimer) before using this software.
 - Paste **YouTube video** or **playlist** URLs (one per line); playlists are expanded into separate queue jobs (large playlists mean many sequential downloads).
 - **Sequential queue** with progress and status in the bottom strip.
 - **Duplicate detection** by normalized artist/title (warning only; does not block saving).
+
+**MP3 audio quality:** yt-dlp format `bestaudio/best`; FFmpeg extract-audio; **192 kbps**.
+
+**WAV audio quality:** yt-dlp format `bestaudio/best`; FFmpeg extract-audio to WAV; **no** explicit sample rate, channels, or bit depth in app code (FFmpeg defaults for `.wav`).
 
 ### Library & playlists
 
@@ -68,7 +71,7 @@ You can either run the app yourself with Python or download the .exe file from t
 
 ```bash
 git clone https://github.com/leobrqz/TrackLyrics-ytdl.git
-cd TrackLyrics-ytdl
+cd TrackLyrics-ytdlp
 ```
 
 
@@ -80,7 +83,6 @@ cd TrackLyrics-ytdl
 pip install -r requirements.txt
 ```
 
-Lyrics retrieval uses **curl_cffi** (pinned in `requirements.txt`) for TLS/browser impersonation. No Playwright or browser install step is required.
 
 ### 3. Start the app
 
@@ -102,6 +104,6 @@ This software is shared for **learning and personal experimentation** (desktop U
 
 This project is **not affiliated with**, endorsed by, or sponsored by YouTube, letras.mus.br, or any other third-party site or service it may interact with.
 
-Lyrics retrieval uses **HTTP requests** (with browser-like TLS fingerprints via curl_cffi) to letras.mus.br. Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
+Lyrics retrieval uses **HTTP requests** to letras.mus.br. Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
 
 The software is provided **as-is**, without warranty; **no liability** is accepted for damages, account actions, or legal consequences arising from use or misuse.
