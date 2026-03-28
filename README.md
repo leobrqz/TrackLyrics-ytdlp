@@ -30,7 +30,7 @@ Please read the [disclaimer](#disclaimer) before using this software.
 
 ### Download & queue
 
-- Paste one or many **YouTube URLs**.
+- Paste **YouTube video** or **playlist** URLs (one per line); playlists are expanded into separate queue jobs (large playlists mean many sequential downloads).
 - **Sequential queue** with progress and status in the bottom strip.
 - **Duplicate detection** by normalized artist/title (warning only; does not block saving).
 
@@ -38,6 +38,7 @@ Please read the [disclaimer](#disclaimer) before using this software.
 
 - **Search** the track list; **favorites** (star) per track.
 - **Playlists**: create, rename, add/remove tracks, **All tracks** vs playlist view.
+- **View Metadata…** (right-click a track): source URL, letras lyrics URLs, on-disk paths, format and file details.
 - **Delete** removes DB row and track folder on disk.
 
 ### Lyrics
@@ -53,6 +54,7 @@ Please read the [disclaimer](#disclaimer) before using this software.
 ### Interface
 
 - **Dark / light** theme from the toolbar.
+- **Window icon** from `assets/icon.ico` when that file is present at the app root.
 
 
 

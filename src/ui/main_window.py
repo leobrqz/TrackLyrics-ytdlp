@@ -23,6 +23,7 @@ import core.library as library
 import core.playlist_manager as pm
 from core.settings import get_setting, set_setting
 from download.queue import DownloadJob, DownloadQueue
+from download.url_expand import expand_youtube_inputs
 from player.playback_manager import PlaybackManager
 from ui.dialogs.add_to_playlist_dialog import AddToPlaylistDialog
 from ui.dialogs.download_dialog import DownloadDialog
@@ -221,7 +222,30 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             urls = dlg.get_urls()
             fmt = dlg.get_format()
-            for url in urls:
+            expanded, failed = expand_youtube_inputs(urls)
+            if failed and not expanded:
+                lines = "\n".join(f"• {u}: {err}" for u, err in failed[:6])
+                if len(failed) > 6:
+                    lines += f"\n… and {len(failed) - 6} more"
+                ErrorDialog(
+                    "Add Downloads",
+                    lines,
+                    "Check URLs and network access.",
+                    parent=self,
+                ).exec()
+                return
+            if failed:
+                lines = "\n".join(f"• {u}: {err}" for u, err in failed[:8])
+                if len(failed) > 8:
+                    lines += f"\n… and {len(failed) - 8} more"
+                ErrorDialog(
+                    "Add Downloads",
+                    f"Some inputs could not be resolved:\n{lines}",
+                    "Remaining items were added to the queue.",
+                    level="warning",
+                    parent=self,
+                ).exec()
+            for url in expanded:
                 self._queue.add(DownloadJob(url=url, format_type=fmt))
             self._progress_widget.on_job_added()
 
