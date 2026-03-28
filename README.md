@@ -42,7 +42,7 @@ Please read the [disclaimer](#disclaimer) before using this software.
 
 ### Lyrics
 
-- Discovers **letras.mus.br** URLs via **DuckDuckGo HTML** search, with **Bing** as fallback, using **HTTP only** (no browser automation).
+- Discovers **letras.mus.br** URLs by probing the canonical `/<artist-slug>/<title-slug>/` path (HTTP only, no browser automation).
 - **Original** and **PT-BR** tabs when both exist; lyrics stored as `.md` under each track’s `lyrics/` folder.
 
 ### Player
@@ -98,8 +98,8 @@ See [LICENSE](LICENSE) (GNU General Public License v3).
 
 This software is shared for **learning and personal experimentation** (desktop UI, local media libraries, automation concepts). It is **not** a commercial product and **not** offered as a tool to bypass restrictions or policies of third-party services.
 
-This project is **not affiliated with**, endorsed by, or sponsored by YouTube, DuckDuckGo, Bing, letras.mus.br, or any other third-party site or service it may interact with.
+This project is **not affiliated with**, endorsed by, or sponsored by YouTube, letras.mus.br, or any other third-party site or service it may interact with.
 
-Lyrics retrieval uses **HTTP requests** (with browser-like TLS fingerprints via curl_cffi) to search engines and letras.mus.br. Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
+Lyrics retrieval uses **HTTP requests** (with browser-like TLS fingerprints via curl_cffi) to letras.mus.br. Downloading media relies on **yt-dlp**. **You** are solely responsible for how you use this software, including compliance with applicable **terms of service**, **copyright**, and **local laws**. The authors and contributors **do not** encourage or condone violating anyone’s ToS, scraping where prohibited, or infringing rights.
 
 The software is provided **as-is**, without warranty; **no liability** is accepted for damages, account actions, or legal consequences arising from use or misuse.

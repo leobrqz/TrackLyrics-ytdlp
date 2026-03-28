@@ -4,14 +4,13 @@ HTTP-first lyrics scraper (curl_cffi browser impersonation) per docs/scrapping.m
 
 Strategy:
   1. Clean YouTube boilerplate from title.
-  2. Discover letras.mus.br URLs via DuckDuckGo HTML, then Bing HTML fallback.
+  2. Discover letras.mus.br URL by probing https://www.letras.mus.br/<artist-slug>/<title-slug>/.
   3. Filter + score candidates by URL slug similarity (RapidFuzz).
   4. GET letras pages and parse lyrics with BeautifulSoup (same CSS selectors).
 """
 from __future__ import annotations
 
 import asyncio
-import base64
 import html as html_module
 import random
 import re
@@ -30,10 +29,6 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-DDG_SEARCH = "https://html.duckduckgo.com/html/?q={query}"
-DDG_HTML_FORM = "https://html.duckduckgo.com/html/"
-BING_SEARCH = "https://www.bing.com/search?q={query}"
 
 # curl_cffi impersonation targets (pinned for reproducibility; see curl_cffi docs)
 IMPERSONATE_ORDER = ("chrome120", "chrome116", "edge101")
@@ -243,62 +238,9 @@ async def _http_get(
     return None, last_imp
 
 
-async def _http_post_form(
-    session: AsyncSession,
-    url: str,
-    form: dict[str, str],
-    *,
-    label: str,
-) -> tuple[Optional[Any], str]:
-    """POST application/x-www-form-urlencoded; same impersonation rotation as GET."""
-    last_imp = IMPERSONATE_ORDER[-1]
-    for imp in IMPERSONATE_ORDER:
-        last_imp = imp
-        try:
-            r = await session.post(url, data=form, impersonate=imp, timeout=45)
-            text = r.text or ""
-            nbytes = _response_byte_length(text)
-            final_u = str(getattr(r, "url", "") or url)
-            log.debug(
-                "%s POST status=%s bytes=%d impersonate=%s final_url=%s",
-                label,
-                r.status_code,
-                nbytes,
-                imp,
-                final_u[:120],
-            )
-
-            if r.status_code == 404:
-                return r, imp
-
-            if r.status_code in (403, 429):
-                log.debug("%s POST retry next impersonate after HTTP %s", label, r.status_code)
-                continue
-
-            if r.status_code not in (200, 202):
-                return r, imp
-
-            return r, imp
-        except Exception as exc:
-            log.warning("%s POST error impersonate=%s: %s", label, imp, exc)
-            continue
-
-    return None, last_imp
-
-
 # ---------------------------------------------------------------------------
-# SERP parsing
+# Discovery (direct letras slug)
 # ---------------------------------------------------------------------------
-
-def _unwrap_ddg_href(href: str) -> str:
-    if "duckduckgo.com/l/?uddg=" in href or "uddg=" in href:
-        try:
-            part = href.split("uddg=")[1].split("&")[0]
-            return urllib.parse.unquote(part)
-        except IndexError:
-            return href
-    return href
-
 
 def _normalize_letras_url(href: str) -> Optional[str]:
     href = href.strip()
@@ -314,294 +256,73 @@ def _normalize_letras_url(href: str) -> Optional[str]:
     return urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
 
 
-def _dedupe_candidates(raw: list[dict]) -> list[dict]:
-    seen: set[str] = set()
-    out: list[dict] = []
-    for c in raw:
-        key = c["url"].lower()
-        if key not in seen:
-            seen.add(key)
-            out.append(c)
-    return out
-
-
-def _parse_ddg_result_html(html: str) -> list[dict]:
-    soup = BeautifulSoup(html, "html.parser")
-    raw: list[dict] = []
-    nodes = soup.select("a.result__url")
-    if not nodes:
-        nodes = soup.select("a.result__a")
-    log.debug(
-        "DDG parser: result anchors count=%d (result__url/result__a) html_len=%d",
-        len(nodes),
-        len(html),
-    )
-
-    for a in nodes:
-        href = (a.get("href") or "").strip()
-        text = a.get_text(strip=True)
-        href = _unwrap_ddg_href(href)
-        norm = _normalize_letras_url(href)
-        if norm:
-            raw.append({"url": norm, "text": text})
-
-    if not raw:
-        for a in soup.select('a[href*="letras.mus.br"]'):
-            href = _unwrap_ddg_href((a.get("href") or "").strip())
-            norm = _normalize_letras_url(href)
-            if norm:
-                raw.append({"url": norm, "text": a.get_text(strip=True)})
-
-    if not raw:
-        raw = _bing_regex_letras_urls(html)
-        log.debug("DDG regex fallback extracted=%d", len(raw))
-
-    deduped = _dedupe_candidates(raw)
-    log.debug("DDG raw=%d deduped=%d", len(raw), len(deduped))
-    return deduped
-
-
-def _unwrap_bing_href(href: str) -> str:
-    if "bing.com/ck/a" not in href and "/ck/a?" not in href:
-        return href
-    parsed = urllib.parse.urlparse(href)
-    qs = urllib.parse.parse_qs(parsed.query)
-    for key in ("u", "p"):
-        vals = qs.get(key)
-        if not vals:
-            continue
-        v = vals[0]
-        try:
-            if v.startswith("a1"):
-                pad = "=" * (-len(v[2:]) % 4)
-                dec = base64.urlsafe_b64decode(v[2:] + pad).decode("utf-8", errors="replace")
-                if dec.startswith("http"):
-                    return dec
-        except Exception:
-            pass
-        dec2 = urllib.parse.unquote(v)
-        if "letras.mus.br" in dec2:
-            return dec2
-    return href
-
-
-_BING_LETRAS_HREF_RE = re.compile(
-    r'https?://(?:www\.)?letras\.mus\.br/[^"\'\s<>]+/[^"\'\s<>]+/?',
-    re.IGNORECASE,
-)
-
-
-def _html_for_url_regex(html: str) -> str:
-    """Normalize JSON-escaped URLs and HTML entities so regex can match."""
-    t = html.replace(r"\/", "/")
-    t = html_module.unescape(t)
-    return t
-
-
-def _bing_regex_letras_urls(html: str) -> list[dict]:
-    raw: list[dict] = []
-    hay = _html_for_url_regex(html)
-    for m in _BING_LETRAS_HREF_RE.finditer(hay):
-        u = m.group(0).rstrip("/").split("?")[0]
-        if u.lower().endswith((".png", ".jpg", ".gif", ".js", ".css")):
-            continue
-        norm = _normalize_letras_url(u)
-        if norm:
-            raw.append({"url": norm, "text": ""})
-    return raw
-
-
-def _parse_bing_result_html(html: str) -> list[dict]:
-    soup = BeautifulSoup(html, "html.parser")
-    raw: list[dict] = []
-    items = soup.select("li.b_algo")
-    if not items:
-        items = soup.select("div.b_algo")
-    log.debug(
-        "Bing parser: b_algo count=%d (li+div) html_len=%d",
-        len(items),
-        len(html),
-    )
-
-    for li in items:
-        href = ""
-        text = ""
-        h2a = li.select_one("h2 a")
-        if h2a and h2a.get("href"):
-            href = _unwrap_bing_href((h2a.get("href") or "").strip())
-            text = h2a.get_text(strip=True)
-        if not href or "letras.mus.br" not in href:
-            for a in li.select("a[href*='letras.mus.br']"):
-                cand = _unwrap_bing_href((a.get("href") or "").strip())
-                if "bing.com/ck" in cand and "letras.mus.br" not in cand:
-                    continue
-                if "letras.mus.br" in cand:
-                    href = cand
-                    text = text or a.get_text(strip=True)
-                    break
-        if not href or "letras.mus.br" not in href:
-            cite = li.select_one("cite")
-            if cite:
-                c = cite.get_text(strip=True)
-                if "letras.mus.br" in c:
-                    c = c.split()[0]
-                    if not c.startswith("http"):
-                        href = "https://" + c.lstrip("/")
-                    else:
-                        href = c
-                    text = text or href
-
-        href = _unwrap_bing_href(href)
-        norm = _normalize_letras_url(href)
-        if norm:
-            raw.append({"url": norm, "text": text})
-
-    if not raw:
-        raw = _bing_regex_letras_urls(html)
-        log.debug("Bing regex fallback extracted=%d", len(raw))
-
-    deduped = _dedupe_candidates(raw)
-    log.debug("Bing raw=%d deduped=%d", len(raw), len(deduped))
-    return deduped
-
-
 async def _direct_letras_slug_probe(
     session: AsyncSession,
     artist: str,
     clean_title: str,
-) -> list[dict]:
+) -> tuple[list[dict], dict[str, Any]]:
     """
-    When SERPs return no links (blocked/rate-limited), probe the canonical
-    https://www.letras.mus.br/<artist-slug>/<title-slug>/ URL built the same
-    way as _choose_candidate scoring expects.
+    GET https://www.letras.mus.br/<artist-slug>/<title-slug>/ and accept the page
+    only when lyric markers are present (same slug rules as _choose_candidate).
     """
+    probe_meta: dict[str, Any] = {
+        "probe_url": None,
+        "discover_http_status": None,
+        "impersonate_used": None,
+        "response_bytes": 0,
+    }
     a = _slugify(artist)
     t = _slugify(clean_title)
     if len(a) < 2 or len(t) < 2:
-        return []
+        return [], probe_meta
 
     url = f"https://www.letras.mus.br/{a}/{t}/"
+    probe_meta["probe_url"] = url
     log.debug("discover_direct probing %s", url)
     r, imp = await _http_get(session, url, label="discover_direct")
+    probe_meta["impersonate_used"] = imp
     log.debug("discover_direct status=%s impersonate=%s", getattr(r, "status_code", None), imp)
 
-    if r is None or r.status_code != 200:
-        return []
+    if r is None:
+        return [], probe_meta
 
-    body = (r.text or "").lower()
+    text = r.text or ""
+    probe_meta["discover_http_status"] = r.status_code
+    probe_meta["response_bytes"] = _response_byte_length(text)
+
+    if r.status_code != 200:
+        return [], probe_meta
+
+    body = text.lower()
     if "lyric-original" not in body and "cnt-letra" not in body:
-        return []
+        return [], probe_meta
 
     final_u = str(getattr(r, "url", "") or url).strip()
     norm = _normalize_letras_url(final_u) or _normalize_letras_url(url)
     if not norm:
-        return []
-    return [{"url": norm, "text": clean_title}]
+        return [], probe_meta
+    return [{"url": norm, "text": clean_title}], probe_meta
 
 
-async def _discover_candidates_http(
+async def _discover_candidates_direct(
     session: AsyncSession,
-    query: str,
-    ddg_search_url: str,
     *,
     artist: str,
     clean_title: str,
 ) -> tuple[list[dict], dict]:
-    """
-    Returns (candidates, meta) where meta holds discover_backend, statuses, counts, etc.
-    """
+    candidates, probe_meta = await _direct_letras_slug_probe(session, artist, clean_title)
     meta: dict = {
-        "discover_backend": None,
-        "discover_http_status": None,
-        "response_bytes": 0,
-        "impersonate_used": None,
-        "bing_fallback_used": False,
-        "raw_candidate_count": 0,
+        "discover_backend": "direct_slug" if probe_meta.get("probe_url") else None,
+        "discover_http_status": probe_meta.get("discover_http_status"),
+        "response_bytes": probe_meta.get("response_bytes", 0),
+        "impersonate_used": probe_meta.get("impersonate_used"),
+        "raw_candidate_count": len(candidates),
     }
-
-    await _human_delay(1.5, 3.0)
-
-    r, imp = await _http_get(session, ddg_search_url, label="discover_ddg_get")
-    meta["impersonate_used"] = imp
-
-    candidates: list[dict] = []
-    if r is not None:
-        text = r.text or ""
-        meta["discover_http_status"] = r.status_code
-        meta["response_bytes"] = _response_byte_length(text)
-        if r.status_code in (200, 202):
-            candidates = _parse_ddg_result_html(text)
-            meta["discover_backend"] = "ddg"
-            meta["raw_candidate_count"] = len(candidates)
-
-    if not candidates:
-        log.debug("DDG GET yielded no candidates; trying DDG HTML POST (form q=)")
-        rp, imp_post = await _http_post_form(
-            session,
-            DDG_HTML_FORM,
-            {"q": query},
-            label="discover_ddg_post",
-        )
-        meta["impersonate_used"] = imp_post
-        if rp is not None:
-            textp = rp.text or ""
-            meta["discover_http_status"] = rp.status_code
-            meta["response_bytes"] = _response_byte_length(textp)
-            if rp.status_code in (200, 202):
-                candidates = _parse_ddg_result_html(textp)
-                meta["discover_backend"] = "ddg"
-                meta["raw_candidate_count"] = len(candidates)
-                log.debug(
-                    "DDG POST status=%s result_anchors_parsed -> raw_candidates=%d",
-                    rp.status_code,
-                    len(candidates),
-                )
-
-    if candidates:
-        log.info(
-            "Lyrics discover backend=ddg status=%s raw_candidates=%d impersonate=%s",
-            meta["discover_http_status"],
-            len(candidates),
-            meta["impersonate_used"],
-        )
-        return candidates, meta
-
-    meta["bing_fallback_used"] = True
-    bing_q = urllib.parse.quote_plus(query)
-    bing_url = BING_SEARCH.format(query=bing_q)
-    log.debug("Discover fallback to Bing url=%s", bing_url[:100])
-
-    await _human_delay(1.0, 2.0)
-
-    r2, imp2 = await _http_get(session, bing_url, label="discover_bing")
-    meta["impersonate_used"] = imp2
-
-    if r2 is not None:
-        text2 = r2.text or ""
-        meta["discover_http_status"] = r2.status_code
-        meta["response_bytes"] = _response_byte_length(text2)
-        if r2.status_code in (200, 202):
-            candidates = _parse_bing_result_html(text2)
-            meta["discover_backend"] = "bing"
-            meta["raw_candidate_count"] = len(candidates)
-
-    if not candidates:
-        log.debug("SERP empty; probing direct letras slug URL")
-        direct = await _direct_letras_slug_probe(session, artist, clean_title)
-        if direct:
-            candidates = direct
-            meta["discover_backend"] = "direct_slug"
-            meta["discover_http_status"] = 200
-            meta["response_bytes"] = 0
-            meta["raw_candidate_count"] = len(direct)
-            meta["bing_fallback_used"] = True
-
     log.info(
-        "Lyrics discover backend=%s status=%s raw_candidates=%d bing_fallback=%s impersonate=%s",
+        "Lyrics discover backend=%s status=%s raw_candidates=%d impersonate=%s",
         meta["discover_backend"],
         meta["discover_http_status"],
         len(candidates),
-        meta["bing_fallback_used"],
         meta["impersonate_used"],
     )
     return candidates, meta
@@ -815,7 +536,6 @@ async def scrape_lyrics(title: str, artist: str) -> dict:
         "impersonate_used": None,
         "raw_candidate_count": 0,
         "filtered_candidate_count": 0,
-        "bing_fallback_used": False,
         "lyrics_http_status": None,
         "lyrics_selector": None,
         "lyrics_chars": 0,
@@ -851,19 +571,21 @@ async def scrape_lyrics(title: str, artist: str) -> dict:
         artist,
     )
 
-    query = f"site:letras.mus.br {clean_t} {discover_a}".strip()
-    encoded = urllib.parse.quote_plus(query)
-    search_url = DDG_SEARCH.format(query=encoded)
+    a_slug, t_slug = _slugify(discover_a), _slugify(clean_t)
+    probe_url = (
+        f"https://www.letras.mus.br/{a_slug}/{t_slug}/"
+        if len(a_slug) >= 2 and len(t_slug) >= 2
+        else ""
+    )
+    query = f"{clean_t} | {discover_a}".strip()
 
-    log.debug("Scraping | query=%r | url=%s", query, search_url)
-    log_structured("lyrics_scrape_start", query=query, search_url=search_url)
+    log.debug("Scraping | query=%r | probe_url=%s", query, probe_url or "(none)")
+    log_structured("lyrics_scrape_start", query=query, search_url=probe_url)
 
     try:
         async with AsyncSession() as session:
-            candidates, dmeta = await _discover_candidates_http(
+            candidates, dmeta = await _discover_candidates_direct(
                 session,
-                query,
-                search_url,
                 artist=discover_a,
                 clean_title=clean_t,
             )
@@ -873,7 +595,6 @@ async def scrape_lyrics(title: str, artist: str) -> dict:
                 response_bytes=dmeta.get("response_bytes", 0),
                 impersonate_used=dmeta.get("impersonate_used"),
                 raw_candidate_count=dmeta.get("raw_candidate_count", 0),
-                bing_fallback_used=dmeta.get("bing_fallback_used", False),
             )
 
             if not candidates:
@@ -883,7 +604,7 @@ async def scrape_lyrics(title: str, artist: str) -> dict:
                 log_structured(
                     "lyrics_scrape_end",
                     query=query,
-                    search_url=search_url,
+                    search_url=probe_url,
                     chosen_url=None,
                     has_original=False,
                     has_ptbr=False,
@@ -904,7 +625,7 @@ async def scrape_lyrics(title: str, artist: str) -> dict:
                 log_structured(
                     "lyrics_scrape_end",
                     query=query,
-                    search_url=search_url,
+                    search_url=probe_url,
                     chosen_url=None,
                     has_original=False,
                     has_ptbr=False,
@@ -948,7 +669,7 @@ async def scrape_lyrics(title: str, artist: str) -> dict:
     log_structured(
         "lyrics_scrape_end",
         query=query,
-        search_url=search_url,
+        search_url=probe_url,
         chosen_url=result["original_url"],
         has_original=result["has_original"],
         has_ptbr=result["has_ptbr"],
