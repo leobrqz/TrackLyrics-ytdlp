@@ -11,7 +11,7 @@ Download **songs** from YouTube, fetch **lyrics** from **letras.mus.br** and pla
 
 </div>
 
-Runs entirely on your machine: no accounts, no cloud library. Data stays local—next to the repo when you develop; the Windows **`.exe`** uses a folder under **Documents**, with a fallback folder next to the executable. 
+Runs entirely on your machine: no accounts, no cloud library. Data stays local next to the repo when you develop; the Windows **`.exe`** uses a folder under **Documents**, with a fallback folder next to the executable. 
 
 
 Please read the [disclaimer](#disclaimer) before using this software.
