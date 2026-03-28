@@ -15,7 +15,6 @@ class MediaFile:
     file_name: str
     format_type: str       # 'mp3' | 'wav' (legacy rows may list other formats)
     has_audio: bool
-    has_video: bool
 
 
 @dataclass

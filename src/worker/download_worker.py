@@ -145,7 +145,6 @@ class DownloadWorker(QThread):
                 file_name=dest_file.name,
                 format_type=job.format_type,
                 has_audio=has_audio,
-                has_video=False,
             )
         except Exception as exc:
             self._fail(job, "Storage Error", str(exc), "Could not register media file in library.")

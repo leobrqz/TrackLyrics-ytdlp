@@ -8,6 +8,8 @@ from pathlib import Path
 # Project root is the parent of the src/ directory
 APP_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
+ICON_PATH: Path = APP_ROOT / "assets" / "icon.ico"
+
 DB_PATH: Path = APP_ROOT / "library.db"
 SETTINGS_JSON_PATH: Path = APP_ROOT / "app_settings.json"
 TRACKS_DIR: Path = APP_ROOT / "tracks"

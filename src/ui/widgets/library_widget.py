@@ -132,6 +132,8 @@ class LibraryWidget(QWidget):
         if self._playlist_context_id is not None:
             remove_pl_action = menu.addAction("Remove from Playlist")
         menu.addSeparator()
+        meta_action = menu.addAction("View Metadata…")
+        menu.addSeparator()
         del_action = menu.addAction("Delete Track")
 
         action = menu.exec(self._list.mapToGlobal(pos))
@@ -142,6 +144,11 @@ class LibraryWidget(QWidget):
             self.request_add_to_playlist.emit(track)
         elif remove_pl_action is not None and action == remove_pl_action:
             self.request_remove_from_playlist.emit(track)
+        elif action == meta_action:
+            from ui.dialogs.track_metadata_dialog import TrackMetadataDialog
+
+            dlg = TrackMetadataDialog(track, parent=self.window())
+            dlg.exec()
         elif action == del_action:
             self._delete_track(track)
 

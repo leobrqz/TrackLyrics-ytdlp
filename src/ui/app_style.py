@@ -29,6 +29,7 @@ DARK_PALETTE = {
     "player_btn_border": "#4b5563",
     "tab_selected": "#1e3a5f",
     "status_bg": "#14161a",
+    "metadata_link": "#93c5fd",
 }
 
 LIGHT_PALETTE = {
@@ -55,7 +56,15 @@ LIGHT_PALETTE = {
     "player_btn_border": "#d8dde6",
     "tab_selected": "#ffffff",
     "status_bg": "#ffffff",
+    "metadata_link": "#0b4699",
 }
+
+
+def get_metadata_link_hex(theme: str) -> str:
+    """QLabel rich-text anchor tags often ignore QSS; inline HTML uses this color."""
+    if theme == "light":
+        return LIGHT_PALETTE["metadata_link"]
+    return DARK_PALETTE["metadata_link"]
 
 
 def get_stylesheet(theme: str) -> str:
@@ -326,6 +335,102 @@ QDialog#addToPlaylistDialog QComboBox:focus {{
 QDialog#addToPlaylistDialog QComboBox::drop-down {{
     border: none;
     width: 22px;
+}}
+QDialog#trackMetadataDialog {{
+    background-color: {p["bg_main"]};
+}}
+QDialog#trackMetadataDialog QScrollArea#trackMetadataScroll {{
+    background-color: {p["bg_main"]};
+    border: none;
+}}
+QDialog#trackMetadataDialog QWidget#trackMetadataScrollViewport {{
+    background-color: {p["bg_main"]};
+}}
+QDialog#trackMetadataDialog QWidget#trackMetadataBody {{
+    background-color: {p["bg_main"]};
+}}
+QDialog#trackMetadataDialog QLabel {{
+    color: {p["text_primary"]};
+}}
+QDialog#trackMetadataDialog QLabel#metadataSectionTitle {{
+    color: {p["text_primary"]};
+    font-weight: 600;
+    font-size: 11pt;
+    margin-top: 10px;
+    margin-bottom: 2px;
+}}
+QDialog#trackMetadataDialog QLabel#metadataFieldKey {{
+    color: {p["text_muted"]};
+    min-width: 7em;
+}}
+QDialog#trackMetadataDialog QLabel#metadataCaptionLabel {{
+    color: {p["text_muted"]};
+    font-size: 9pt;
+    margin-top: 2px;
+}}
+QDialog#trackMetadataDialog QLabel#metadataFileTitle {{
+    color: {p["text_primary"]};
+    font-weight: 600;
+}}
+QDialog#trackMetadataDialog QLabel#metadataLinkLabel {{
+    color: {p["metadata_link"]};
+}}
+QDialog#trackMetadataDialog QLabel#metadataLinkLabel a {{
+    color: {p["metadata_link"]};
+}}
+QLineEdit#metadataPathEdit {{
+    background-color: {p["bg_elevated"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    border-radius: 6px;
+    padding: 6px 10px;
+    selection-background-color: {p["accent"]};
+    selection-color: #ffffff;
+}}
+QLineEdit#metadataPathEdit:read-only {{
+    color: {p["text_primary"]};
+    background-color: {p["bg_elevated"]};
+}}
+QFrame#metadataHLine {{
+    background-color: {p["border"]};
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}}
+QDialog#trackMetadataDialog QWidget#trackMetadataFooter {{
+    background-color: {p["bg_main"]};
+    border-top: 1px solid {p["border"]};
+}}
+QDialog#trackMetadataDialog QDialogButtonBox#trackMetadataButtonBox {{
+    background-color: transparent;
+    border: none;
+}}
+QDialog#trackMetadataDialog QDialogButtonBox#trackMetadataButtonBox QPushButton {{
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-weight: 500;
+    font-size: 9pt;
+    min-width: 0;
+    min-height: 0;
+}}
+QDialog#trackMetadataDialog QDialogButtonBox#trackMetadataButtonBox QPushButton:hover {{
+    background-color: {p["menu_hover"]};
+}}
+QDialog#trackMetadataDialog QDialogButtonBox#trackMetadataButtonBox QPushButton:pressed {{
+    background-color: {p["border"]};
+}}
+QDialog#trackMetadataDialog QDialogButtonBox#trackMetadataButtonBox QPushButton:default {{
+    background-color: {p["accent"]};
+    color: #ffffff;
+    border-color: {p["accent"]};
+}}
+QDialog#trackMetadataDialog QDialogButtonBox#trackMetadataButtonBox QPushButton:default:hover {{
+    background-color: {p["accent_hover"]};
 }}
 QDialog QPushButton {{
     background-color: {p["bg_card"]};
