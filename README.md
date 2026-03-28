@@ -39,14 +39,14 @@ Please read the [disclaimer](#disclaimer) before using this software.
 
 ### Library & playlists
 
-- **Search** the track list; **favorites** (star) per track.
+- **Search** the track list; **favorites** per track.
 - **Playlists**: create, rename, add/remove tracks, **All tracks** vs playlist view.
-- **View Metadata…** (right-click a track): source URL, letras lyrics URLs, on-disk paths, format and file details.
+- **View Metadata**: source URL, letras lyrics URLs, on-disk paths, format and file details.
 - **Delete** removes DB row and track folder on disk.
 
 ### Lyrics
 
-- Discovers **letras.mus.br** URLs by probing the canonical `/<artist-slug>/<title-slug>/` path (HTTP only, no browser automation).
+- Discovers **letras.mus.br** URLs by probing the canonical `/<artist-slug>/<title-slug>/` path.
 - **Original** and **PT-BR** tabs when both exist; lyrics stored as `.md` under each track’s `lyrics/` folder.
 
 ### Player
@@ -57,7 +57,6 @@ Please read the [disclaimer](#disclaimer) before using this software.
 ### Interface
 
 - **Dark / light** theme from the toolbar.
-- **Window icon** from `assets/icon.ico` when that file is present at the app root.
 
 
 
