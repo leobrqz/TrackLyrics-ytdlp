@@ -272,6 +272,8 @@ class MainWindow(QMainWindow):
             track.media_files[0].format_type if track.media_files else "?"
         )
         self._player_widget.set_playing(True)
+        self._library_widget.select_track_by_id(track.id)
+        self._lyrics_widget.load_track(track)
 
     def _toggle_play(self) -> None:
         if self._playback.is_playing():

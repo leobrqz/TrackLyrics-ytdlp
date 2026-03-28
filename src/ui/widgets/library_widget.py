@@ -7,10 +7,16 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QVBoxLayout, QWidget, QPushButton,
+    QAbstractItemView,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 import core.library as library
@@ -85,6 +91,22 @@ class LibraryWidget(QWidget):
     def set_playlist_context(self, playlist_id: Optional[int]) -> None:
         """When viewing a playlist, pass its id; None for All tracks."""
         self._playlist_context_id = playlist_id
+
+    def select_track_by_id(self, track_id: int) -> bool:
+        """
+        Highlight the row for track_id in the current list (e.g. next/prev playback).
+        Does not emit track_selected. Returns False if the track is not in the current view.
+        """
+        for i in range(self._list.count()):
+            it = self._list.item(i)
+            tr = it.data(Qt.ItemDataRole.UserRole)
+            if tr and tr.id == track_id:
+                self._list.setCurrentRow(i)
+                self._list.scrollToItem(
+                    it, QAbstractItemView.ScrollHint.EnsureVisible
+                )
+                return True
+        return False
 
     # ── Internal ────────────────────────────────────────────────────────────
 
