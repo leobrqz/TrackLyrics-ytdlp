@@ -3,6 +3,7 @@ download/queue.py
 In-memory FIFO download job queue.
 """
 from __future__ import annotations
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -20,34 +21,54 @@ class DownloadJob:
 class DownloadQueue:
     def __init__(self) -> None:
         self._jobs: list[DownloadJob] = []
+        self._lock = threading.Lock()
 
     def add(self, job: DownloadJob) -> None:
-        self._jobs.append(job)
+        with self._lock:
+            self._jobs.append(job)
 
-    def next_pending(self) -> Optional[DownloadJob]:
-        for job in self._jobs:
-            if job.status == "pending":
-                return job
-        return None
+    def take_next_pending(self) -> Optional[DownloadJob]:
+        with self._lock:
+            for job in self._jobs:
+                if job.status == "pending":
+                    job.status = "running"
+                    return job
+            return None
+
+    def take_up_to_n_pending(self, n: int) -> list[DownloadJob]:
+        if n < 1:
+            return []
+        with self._lock:
+            out: list[DownloadJob] = []
+            for job in self._jobs:
+                if job.status == "pending" and len(out) < n:
+                    job.status = "running"
+                    out.append(job)
+            return out
 
     def mark_running(self, job_id: str) -> None:
-        self._get(job_id).status = "running"
+        with self._lock:
+            self._get_unlocked(job_id).status = "running"
 
     def mark_done(self, job_id: str) -> None:
-        self._get(job_id).status = "done"
+        with self._lock:
+            self._get_unlocked(job_id).status = "done"
 
     def mark_failed(self, job_id: str, error: str = "") -> None:
-        job = self._get(job_id)
-        job.status = "failed"
-        job.error = error
+        with self._lock:
+            job = self._get_unlocked(job_id)
+            job.status = "failed"
+            job.error = error
 
     def all_jobs(self) -> list[DownloadJob]:
-        return list(self._jobs)
+        with self._lock:
+            return list(self._jobs)
 
     def pending_count(self) -> int:
-        return sum(1 for j in self._jobs if j.status == "pending")
+        with self._lock:
+            return sum(1 for j in self._jobs if j.status == "pending")
 
-    def _get(self, job_id: str) -> DownloadJob:
+    def _get_unlocked(self, job_id: str) -> DownloadJob:
         for job in self._jobs:
             if job.job_id == job_id:
                 return job

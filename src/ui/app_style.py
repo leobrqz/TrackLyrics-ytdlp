@@ -336,6 +336,66 @@ QDialog#addToPlaylistDialog QComboBox::drop-down {{
     border: none;
     width: 22px;
 }}
+QDialog#settingsDialog {{
+    background-color: {p["bg_elevated"]};
+}}
+QDialog#settingsDialog QLabel {{
+    color: {p["text_primary"]};
+}}
+QDialog#settingsDialog QComboBox {{
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-height: 22px;
+}}
+QDialog#settingsDialog QComboBox:focus {{
+    border: 1px solid {p["accent"]};
+}}
+QDialog#settingsDialog QComboBox::drop-down {{
+    border: none;
+    width: 22px;
+}}
+QDialog#settingsDialog QSpinBox {{
+    background-color: {p["bg_card"]};
+    color: {p["text_primary"]};
+    border: 1px solid {p["border"]};
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-height: 22px;
+}}
+QDialog#settingsDialog QSpinBox:focus {{
+    border: 1px solid {p["accent"]};
+}}
+QDialog#settingsDialog QSpinBox::up-button,
+QDialog#settingsDialog QSpinBox::down-button {{
+    width: 18px;
+    border: none;
+    background-color: {p["bg_elevated"]};
+}}
+QDialog#settingsDialog QSpinBox::up-button:hover,
+QDialog#settingsDialog QSpinBox::down-button:hover {{
+    background-color: {p["menu_hover"]};
+}}
+QDialog#settingsDialog QCheckBox {{
+    color: {p["text_primary"]};
+    spacing: 8px;
+}}
+QDialog#settingsDialog QCheckBox::indicator {{
+    width: 18px;
+    height: 18px;
+    border: 1px solid {p["border"]};
+    border-radius: 4px;
+    background-color: {p["bg_card"]};
+}}
+QDialog#settingsDialog QCheckBox::indicator:checked {{
+    background-color: {p["accent"]};
+    border-color: {p["accent"]};
+}}
+QDialog#settingsDialog QCheckBox::indicator:hover {{
+    border-color: {p["accent"]};
+}}
 QDialog#trackMetadataDialog {{
     background-color: {p["bg_main"]};
 }}

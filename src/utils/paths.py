@@ -10,7 +10,7 @@ from pathlib import Path
 
 _DEV_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
-_FROZEN_DATA_DIRNAME = "tracklyrics"
+_FROZEN_DATA_DIRNAME = "TrackLyrics"
 _PORTABLE_APP_ROOT_NAME = "TrackLyrics"
 
 # CSIDL_PERSONAL — Windows Shell "Documents" / "My Documents" (correct path per locale)

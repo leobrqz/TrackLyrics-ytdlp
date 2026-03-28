@@ -29,6 +29,7 @@ from ui.dialogs.add_to_playlist_dialog import AddToPlaylistDialog
 from ui.dialogs.download_dialog import DownloadDialog
 from ui.dialogs.duplicate_dialog import DuplicateDialog
 from ui.dialogs.error_dialog import ErrorDialog
+from ui.dialogs.settings_dialog import SettingsDialog
 from ui.widgets.library_widget import LibraryWidget
 from ui.widgets.lyrics_widget import LyricsWidget
 from ui.widgets.player_widget import PlayerWidget
@@ -98,6 +99,13 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         tb.addWidget(spacer)
+
+        self._settings_btn = QPushButton("Settings")
+        self._settings_btn.setObjectName("toolbarTextBtn")
+        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_btn.setToolTip("Download queue and lyrics options")
+        self._settings_btn.clicked.connect(self._open_settings)
+        tb.addWidget(self._settings_btn)
 
         self._theme_btn = QPushButton()
         self._theme_btn.setObjectName("toolbarTextBtn")
@@ -328,6 +336,9 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     # ── Theme ────────────────────────────────────────────────────────────────
+
+    def _open_settings(self) -> None:
+        SettingsDialog(self).exec()
 
     def _toggle_theme(self) -> None:
         current = get_setting("theme", "dark")
