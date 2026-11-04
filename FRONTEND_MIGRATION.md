@@ -50,6 +50,20 @@ The Python stdout stream is reserved for protocol messages; human-readable logs 
 - Keep UI copy concise and grounded in real data. Avoid fictional server/network states, placeholder marketing copy, generated artwork, and decorative status panels.
 - Use restrained motion for selection, queue updates, and playback feedback. Respect reduced-motion preferences and keyboard focus.
 
+## Direction contract
+
+**THESIS:** TrackLyrics is a local listening archive: every track row is the shared anchor for its library context, lyrics, playback, and actions. The interface avoids generic dashboard cards and fabricated cover art.
+
+**OWN-WORLD:** Build a quiet, information-rich desktop surface from graphite and cool paper neutrals, one restrained audio accent, ruled data columns, a readable lyric field, and a persistent transport. Dark and light themes use the same contrast and hierarchy.
+
+**STORY:** The user moves from a library or playlist to one selected track; its lyrics and player state stay in sync. Downloads and their real per-job states have a dedicated view and remain one action away.
+
+**FIRST VIEWPORT:** At 1440×960, a narrow navigation rail identifies All Tracks, Favorites, playlists, and Downloads; the main track table occupies the center-left; the lyric reader takes a stable right column; search and Add Downloads sit above the active view; the player spans the bottom edge.
+
+**FORM:** Listening Archive, code-led. Its signature interaction is one shared track cursor: selecting or advancing a row updates the lyric reader and player together; live download rows update in place without moving or obscuring playback. This direction translates the user's Apple/Linear quality reference into exact hierarchy and interaction rather than copied branding.
+
+**FINISH:** unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
 ## Known behavior gaps to resolve during the migration
 
 - Searching inside a playlist currently filters all tracks rather than only that playlist.
