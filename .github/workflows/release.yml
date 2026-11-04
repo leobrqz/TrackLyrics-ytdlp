@@ -5,72 +5,62 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build EXE
-        shell: cmd
-        run: |
-          pyinstaller ^
-            --clean ^
-            --onefile ^
-            --noconsole ^
-            --paths=src ^
-            --name=TrackLyrics-${{ github.ref_name }} ^
-            --collect-all PySide6 ^
-            --distpath release ^
-            --workpath build ^
-            --specpath release ^
-            src\main.py
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - name: Prepare package
-        run: |
-          mkdir package
-          copy release\TrackLyrics-*.exe package\
-          copy README.md package\
+      - name: Build Tauri installers
+        run: npm run tauri build
 
-      - name: Create ZIP
+      - name: Stage release files
+        shell: pwsh
         run: |
-          powershell Compress-Archive -Path package\* -DestinationPath TrackLyrics-${{ github.ref_name }}.zip
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ github.ref_name }}'
+          $stage = 'release-package'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          $msi = Get-ChildItem 'src-tauri/target/release/bundle/msi/*.msi' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $setup = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          if ($null -eq $msi -or $null -eq $setup) {
+            throw 'Tauri must produce both the MSI and NSIS installer before a release can be published.'
+          }
+          Copy-Item -LiteralPath $msi.FullName -Destination "$stage/TrackLyrics-$tag-x64.msi"
+          Copy-Item -LiteralPath $setup.FullName -Destination "$stage/TrackLyrics-$tag-x64-setup.exe"
+          Copy-Item -LiteralPath 'README.md' -Destination $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "TrackLyrics-$tag-windows.zip" -Force
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: TrackLyrics ${{ github.ref_name }}
-          body: |
-            ### This release includes:
-            - **TrackLyrics-${{ github.ref_name }}.exe** — single-file build (Windows)
-            - **TrackLyrics-${{ github.ref_name }}.zip** — exe + README
-
-
-            ### Changelog:
-
-
-            
-            **How to use:**
-            1. Download and extract the .zip, or use the .exe directly.
-            2. The config file is auto-generated on first run.
-            3. Select Bash executable path.
-            4. Select project path.
-            5. Done!
+          generate_release_notes: true
           files: |
-            release/TrackLyrics-${{ github.ref_name }}.exe
-            TrackLyrics-${{ github.ref_name }}.zip
+            release-package/TrackLyrics-${{ github.ref_name }}-x64.msi
+            release-package/TrackLyrics-${{ github.ref_name }}-x64-setup.exe
+            TrackLyrics-${{ github.ref_name }}-windows.zip
