@@ -30,15 +30,15 @@ Python sidecar
 
 The Python stdout stream is reserved for protocol messages; human-readable logs go to stderr and the local log file. Requests carry an identifier, command, and payload. Responses carry the same identifier. Asynchronous download and library updates are emitted as typed events. Media paths are resolved and checked by the application boundary before the WebView can read them.
 
-## Migration sequence
+## Delivered implementation
 
-1. **Product and visual direction:** keep `PRODUCT.md` as product truth; establish a code-led design contract and record the final visual system in `DESIGN.md` after implementation review.
-2. **Desktop and frontend foundation:** add the Vite/React/TypeScript frontend and Tauri shell, with a small typed bridge and project-owned design tokens.
-3. **Sidecar boundary:** split runtime dependencies from Qt UI dependencies; implement versioned JSONL commands/events; detach the worker from `QThread`/Qt signals; keep stdout protocol-safe.
-4. **Complete primary interface:** implement library/search/favorites/playlist actions, lyrics states and language switching, persistent playback controls, per-job downloads and errors, settings, and theme persistence.
-5. **Data and media compatibility:** preserve the current data root; validate every media path; define handling for missing/corrupt paths and destructive actions; verify seek, volume, end-of-track, and playlist transitions.
-6. **Windows packaging:** build and bundle the Tauri app plus Python sidecar. Make FFmpeg/ffprobe availability explicit and ensure the release installer does not silently create a blank library beside the executable.
-7. **Review and release handoff:** inspect responsive layouts and desktop interactions, run the Impeccable detector, complete independent finish review, update the design documentation, then commit and push the finished branch.
+- Replaced the PySide6 window, dialogs, widgets, Qt player, and `QThread` download worker with a React/TypeScript frontend and a Qt-free Python sidecar.
+- Added a Tauri 2 shell with a restricted backend command list, correlated JSONL requests, asynchronous backend events, and validated local audio paths.
+- Implemented library search, favorites, playlist management, metadata, confirmed track and playlist deletion, original/PT-BR lyrics, per-job downloads and retry, a persistent player, and saved settings/themes.
+- Preserved the existing SQLite schema and the Windows `Documents/TrackLyrics` library path. Added only the additive lyrics lookup status column.
+- Bundled FFmpeg through `imageio-ffmpeg`; `ffprobe` remains optional for best-effort media details.
+- Added Windows MSI and NSIS output and ignored generated sidecar/build files.
+- Documented the implemented visual system in `DESIGN.md`; `.impeccable/` remains local and ignored.
 
 ## Interaction and visual requirements
 
@@ -64,14 +64,14 @@ The Python stdout stream is reserved for protocol messages; human-readable logs 
 
 **FINISH:** unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
-## Known behavior gaps to resolve during the migration
+## Resolved migration gaps
 
-- Searching inside a playlist currently filters all tracks rather than only that playlist.
-- Parallel downloads currently share a single progress bar.
-- Lyrics unavailable does not distinguish pending lookup from completed lookup with no match.
-- Deleting the currently playing track can leave playback pointing at a removed file.
-- Startup library validation can offer deletion when folders are missing; preserve records until the user explicitly confirms a destructive action.
-- The release workflow does not package FFmpeg/ffprobe, and the current release build is PyInstaller-only.
+- Playlist search is scoped to the active playlist in the backend query.
+- Each parallel download has its own progress, stage, and outcome.
+- Lyrics distinguish lookup pending, no match, failed lookup, and missing local files.
+- Deleting the current track stops playback and clears the player before its local folder is removed.
+- Track and playlist removal require explicit confirmation; startup does not delete missing records.
+- The Windows package includes the Python sidecar and bundled FFmpeg. `ffprobe` is optional.
 
 ## Acceptance criteria
 
@@ -83,8 +83,11 @@ The Python stdout stream is reserved for protocol messages; human-readable logs 
 - No interface text reports a state the application has not measured.
 - The app builds as a Tauri desktop artifact with the Python backend bundled and logs separated from IPC.
 
-## Open implementation constraints
+## Build and review record
 
-- Confirm the final Windows artifact format and FFmpeg redistribution approach before publishing a release.
-- Preserve current English UI copy during the first migration; localization can be added as a separate decision.
-- Do not move user data into Tauri's default app-data directory without a tested, backed-up migration.
+- `npm run build` passed: TypeScript and Vite production build.
+- `python -m compileall -q src` passed for the Qt-free Python backend.
+- `cargo fmt --check` and `cargo check` passed with the development overlay (`externalBin` disabled for source-mode development).
+- `npm run tauri:build` produced `TrackLyrics_1.1.0_x64_en-US.msi` and `TrackLyrics_1.1.0_x64-setup.exe` on Windows.
+- Visual review covered dark and light at 1440×960 and the compact desktop layout at 1024×680. The workspace contained no library/audio files, so the visual review used an unshipped local fixture; actual playback against a user's library remains device-side behavior.
+- English UI copy remains in place. The app continues to use `Documents/TrackLyrics` for the installed Windows build; no migration to Tauri app-data is performed.

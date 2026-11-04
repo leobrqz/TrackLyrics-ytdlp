@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from utils.logger import get_logger
+from utils.ffmpeg import get_ffmpeg_executable
 
 log = get_logger(__name__)
 
@@ -33,8 +34,13 @@ def convert(input_path: Path, target_format: str, output_path: Path) -> Path:
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    try:
+        ffmpeg_executable = str(get_ffmpeg_executable())
+    except FileNotFoundError as exc:
+        raise ConversionError(str(exc)) from exc
+
     cmd = [
-        "ffmpeg",
+        ffmpeg_executable,
         "-y",                    # overwrite without asking
         "-i", str(input_path),
     ]

@@ -1,0 +1,5 @@
+beautifulsoup4==4.12.3
+curl-cffi==0.7.4
+imageio-ffmpeg==0.8.1
+RapidFuzz==3.14.3
+yt-dlp==2026.3.17

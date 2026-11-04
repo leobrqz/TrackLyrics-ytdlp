@@ -66,5 +66,5 @@ def describe_audio_file(path: Path) -> str:
                 return " · ".join(parts)
             except Exception:
                 pass
-        return f"{size_s} (install ffprobe for bitrate / sample rate)"
+        return f"{size_s} (bitrate and sample rate unavailable: ffprobe not found)"
     return size_s

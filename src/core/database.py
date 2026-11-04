@@ -56,6 +56,7 @@ def init_db() -> None:
                 ptbr_url        TEXT,
                 has_original    BOOLEAN NOT NULL DEFAULT 0,
                 has_ptbr        BOOLEAN NOT NULL DEFAULT 0,
+                search_status   TEXT NOT NULL DEFAULT 'unknown',
                 FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
             );
 
@@ -74,4 +75,16 @@ def init_db() -> None:
                 FOREIGN KEY (track_id)    REFERENCES tracks(id)    ON DELETE CASCADE
             );
         """)
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(lyrics)").fetchall()
+        }
+        if "search_status" not in columns:
+            conn.execute(
+                "ALTER TABLE lyrics ADD COLUMN search_status TEXT NOT NULL DEFAULT 'unknown'"
+            )
+            conn.execute(
+                "UPDATE lyrics SET search_status = 'complete' "
+                "WHERE has_original = 1 OR has_ptbr = 1"
+            )
     conn.close()

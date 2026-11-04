@@ -5,6 +5,7 @@ All directories are created on import if they do not already exist.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -54,6 +55,10 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
 else:
     _BUNDLE_ROOT = _DEV_ROOT
     APP_ROOT = _DEV_ROOT
+
+_DATA_DIR_OVERRIDE = os.environ.get("TRACKLYRICS_DATA_DIR")
+if _DATA_DIR_OVERRIDE:
+    APP_ROOT = Path(_DATA_DIR_OVERRIDE).expanduser().resolve()
 
 ICON_PATH: Path = _BUNDLE_ROOT / "assets" / "icon.ico"
 

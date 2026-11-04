@@ -11,6 +11,7 @@ from typing import Callable, Optional
 import yt_dlp
 
 from utils.logger import get_logger
+from utils.ffmpeg import get_ffmpeg_executable
 
 log = get_logger(__name__)
 
@@ -81,6 +82,11 @@ def download(
         elif d.get("status") == "finished":
             _meta["_filename"] = d.get("filename", "")
 
+    try:
+        ffmpeg_location = str(get_ffmpeg_executable())
+    except FileNotFoundError as exc:
+        raise DownloadError(str(exc)) from exc
+
     ydl_opts = {
         "format": ydl_format,
         "outtmpl": outtmpl,
@@ -89,6 +95,7 @@ def download(
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        "ffmpeg_location": ffmpeg_location,
     }
 
     try:

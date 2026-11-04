@@ -38,6 +38,7 @@ def _row_to_media_file(row) -> MediaFile:
 
 
 def _row_to_lyrics(row) -> LyricsRow:
+    keys = set(row.keys())
     return LyricsRow(
         track_id=row["track_id"],
         original_path=row["original_path"],
@@ -46,6 +47,7 @@ def _row_to_lyrics(row) -> LyricsRow:
         ptbr_url=row["ptbr_url"],
         has_original=bool(row["has_original"]),
         has_ptbr=bool(row["has_ptbr"]),
+        search_status=(row["search_status"] if "search_status" in keys else "unknown"),
     )
 
 
@@ -166,6 +168,7 @@ def update_lyrics(
     ptbr_url: Optional[str],
     has_original: bool,
     has_ptbr: bool,
+    search_status: str = "complete",
 ) -> None:
     conn = get_connection()
     try:
@@ -174,11 +177,11 @@ def update_lyrics(
                 """
                 UPDATE lyrics
                 SET original_path = ?, ptbr_path = ?, original_url = ?,
-                    ptbr_url = ?, has_original = ?, has_ptbr = ?
+                    ptbr_url = ?, has_original = ?, has_ptbr = ?, search_status = ?
                 WHERE track_id = ?
                 """,
                 (original_path, ptbr_path, original_url, ptbr_url,
-                 int(has_original), int(has_ptbr), track_id),
+                 int(has_original), int(has_ptbr), search_status, track_id),
             )
     finally:
         conn.close()

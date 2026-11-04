@@ -20,5 +20,6 @@ gist
 node_modules/
 web/dist/
 src-tauri/target/
+src-tauri/binaries/
 release-package/
 TrackLyrics-*-windows.zip

@@ -27,6 +27,13 @@ class DownloadQueue:
         with self._lock:
             self._jobs.append(job)
 
+    def add_many(self, jobs: list[DownloadJob]) -> None:
+        """Append a batch atomically so parallel consumers see the whole batch."""
+        if not jobs:
+            return
+        with self._lock:
+            self._jobs.extend(jobs)
+
     def take_next_pending(self) -> Optional[DownloadJob]:
         with self._lock:
             for job in self._jobs:

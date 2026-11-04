@@ -19,7 +19,8 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.StreamHandler(sys.stdout),
+        # stdout is reserved for the sidecar's JSONL request/response protocol.
+        logging.StreamHandler(sys.stderr),
         logging.FileHandler(_LOG_FILE, encoding="utf-8"),
     ],
 )

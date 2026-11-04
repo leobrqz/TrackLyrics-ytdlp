@@ -26,6 +26,7 @@ class LyricsRow:
     ptbr_url: Optional[str]
     has_original: bool
     has_ptbr: bool
+    search_status: str = "unknown"
 
 
 @dataclass
