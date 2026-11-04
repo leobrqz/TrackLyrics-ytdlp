@@ -17,3 +17,8 @@ docs/
 
 gist
 .impeccable/
+node_modules/
+web/dist/
+src-tauri/target/
+release-package/
+TrackLyrics-*-windows.zip
