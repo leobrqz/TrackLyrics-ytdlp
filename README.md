@@ -2,16 +2,17 @@
 
 # TrackLyrics
 
-Download **songs** from YouTube, fetch **lyrics** from **letras.mus.br** and play everything with a **PySide6** UI.
+Download audio from YouTube, fetch lyrics from letras.mus.br, organize a local music library, and listen in a desktop app built with Tauri and React.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![PySide6](https://img.shields.io/badge/PySide-6-green?style=flat&logo=qt)](https://doc.qt.io/qtforpython-6/)
+[![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat&logo=tauri&logoColor=white)](https://tauri.app/)
+[![React](https://img.shields.io/badge/React-TypeScript-149ECA?style=flat&logo=react&logoColor=white)](https://react.dev/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![yt-dlp](https://img.shields.io/badge/yt--dlp-2026.3-red?style=flat)](https://github.com/yt-dlp/yt-dlp)
 
 </div>
 
-Runs entirely on your machine: no accounts, no cloud library. Data stays local next to the repo when you develop; the Windows **`.exe`** uses a folder under **Documents**, with a fallback folder next to the executable. 
+Runs on your machine: no account or cloud library. The Windows app keeps its database, settings, lyrics, and audio under **Documents/TrackLyrics**. Tauri development reuses an existing library in the repository root when present; otherwise it uses the same Documents folder.
 
 
 Please read the [disclaimer](#disclaimer) before using this software.
@@ -20,17 +21,20 @@ Please read the [disclaimer](#disclaimer) before using this software.
 
 | Layer | Tech |
 |-------|------|
-| UI | PySide6 |
-| Download | yt-dlp |
-| Storage | SQLite + filesystem |
-| Lyrics | BeautifulSoup, RapidFuzz, curl_cffi |
+| Desktop shell | Tauri 2 + Rust |
+| UI | React + TypeScript + Vite |
+| Styling | Tailwind CSS + project-owned design tokens |
+| Local backend | Python sidecar over JSON Lines |
+| Download and audio conversion | yt-dlp + FFmpeg |
+| Storage | SQLite + local files |
+| Lyrics lookup | BeautifulSoup, RapidFuzz, curl_cffi |
 
 ## Features
 
 ### Download & queue
 
 - Paste **YouTube video** or **playlist** URLs (one per line); playlists are expanded into separate queue jobs (large playlists mean many sequential downloads).
-- **Sequential queue** with progress and status in the bottom strip.
+- **Sequential or parallel queue** with progress and status for each job.
 - **Duplicate detection** by normalized artist/title (warning only; does not block saving).
 
 **MP3 audio quality:** yt-dlp format `bestaudio/best`; FFmpeg extract-audio; **192 kbps**.
@@ -56,14 +60,15 @@ Please read the [disclaimer](#disclaimer) before using this software.
 
 ### Interface
 
-- **Dark / light** theme from the toolbar.
+- A searchable library, playlists, lyrics reader, download queue, and persistent audio player in one desktop app.
+- **Dark / light** theme with saved preferences.
 
 
 
 
 ## Setup
 
-You can either run the app yourself with Python or download the .exe file from the [releases](https://github.com/leobrqz/TrackLyrics-ytdl/releases) page.
+Download the Windows installer from the [releases](https://github.com/leobrqz/TrackLyrics-ytdl/releases) page, or run the app locally during development.
 
 
 ### 1. Clone the project
@@ -76,20 +81,31 @@ cd TrackLyrics-ytdlp
 
 ### 2. Install dependencies
 
-- Set up Python environment
+Install the Python backend dependencies and frontend packages:
 
-```bash
-pip install -r requirements.txt
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-backend.txt
+npm ci
 ```
 
 
 ### 3. Start the app
 
-From the repository root:
+On Windows, with Node.js 22+, Python 3.11+, and the Rust stable toolchain installed:
 
-```bash
-cd src && python main.py
+```powershell
+npm run tauri:dev
 ```
+
+The dev command starts the React interface and a source-mode Python sidecar. To build the desktop installers:
+
+```powershell
+npm run tauri:build
+```
+
+The build packages a Python sidecar and produces Windows MSI and NSIS installers. The sidecar includes FFmpeg for downloads and conversion; `ffprobe` details remain best-effort when `ffprobe` is not installed separately.
 
 
 ## License
